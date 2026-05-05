@@ -19,7 +19,11 @@ export default async function ExportPage() {
     <div className="space-y-6">
       <PageHeader
         title="Export & Jahresabschluss"
-        description={`Exporte enthalten Datum, Kategorie, Beschreibung, Originalbetrag, Währung, Zahlungsdatum, Wechselkurs, Betrag in ${data.reportingCurrency}, Netto/Brutto und Berechnungshinweise, soweit im Datensatz vorhanden.`}
+        description={
+          data.settings?.steuerberater_view
+            ? `Exporte enthalten Datum, Kategorie, Beschreibung, Originalbetrag, Währung, Zahlungsdatum, Wechselkurs, Betrag in ${data.reportingCurrency}, Netto/Brutto und Berechnungshinweise, soweit im Datensatz vorhanden.`
+            : null
+        }
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-4">
@@ -38,7 +42,7 @@ export default async function ExportPage() {
         </Card>
         <Card className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-950">Jahresreport / PDF</h2>
-          <p className="text-sm leading-6 text-slate-600">
+          <p className="hidden text-sm leading-6 text-slate-600 sm:block">
             Für das MVP wird der Jahresreport als saubere HTML-Druckansicht erzeugt. Diese kann im Browser direkt als PDF gespeichert werden und eignet sich für die Steuerberater-Ansicht.
           </p>
           <Link

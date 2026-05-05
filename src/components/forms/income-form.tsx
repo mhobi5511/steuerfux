@@ -81,7 +81,7 @@ export function IncomeForm({
         <h2 className="text-lg font-semibold text-slate-950">
           {initialValues?.id ? "Einnahme bearbeiten" : "Neue Einnahme"}
         </h2>
-        <p className="text-sm text-slate-600">
+        <p className="hidden text-sm text-slate-600 sm:block">
           Fulle nur das Nötigste aus. Die App leitet Status, Differenzen und mögliche Bankgebühren automatisch ab.
         </p>
       </div>

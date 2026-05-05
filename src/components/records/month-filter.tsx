@@ -60,7 +60,7 @@ export function MonthFilter({
     <Card className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-slate-950">Liste filtern</h2>
-        <p className="text-sm text-slate-600">
+        <p className="hidden text-sm text-slate-600 sm:block">
           Standardmäßig wird der aktuelle Monat gezeigt. Auf Wunsch kannst du alle Monate einblenden.
         </p>
       </div>

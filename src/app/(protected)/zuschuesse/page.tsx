@@ -13,7 +13,11 @@ export default async function ReimbursementsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Zuschüsse"
-        description="Hier verwaltest du weiterberechenbare und erstattete Kosten getrennt von normalen Einnahmen."
+        description={
+          settings?.steuerberater_view
+            ? "Hier verwaltest du weiterberechenbare und erstattete Kosten getrennt von normalen Einnahmen."
+            : null
+        }
       />
       <ReimbursementForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}

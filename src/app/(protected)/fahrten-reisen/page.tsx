@@ -29,7 +29,11 @@ export default async function TripsPage({
     <div className="space-y-6">
       <PageHeader
         title="Fahrten & Reisen"
-        description="Reisen werden als klare Route mit Start, Stopps und Rückkehr erfasst. Verpflegungspauschalen werden pro Tag nachvollziehbar berechnet und private Stopps gesondert markiert."
+        description={
+          settings?.steuerberater_view
+            ? "Reisen werden als klare Route mit Start, Stopps und Rückkehr erfasst. Verpflegungspauschalen werden pro Tag nachvollziehbar berechnet und private Stopps gesondert markiert."
+            : null
+        }
       />
       <TripForm
         key={initialTrip?.id ?? "new"}

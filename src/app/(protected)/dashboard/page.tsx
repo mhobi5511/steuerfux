@@ -12,17 +12,18 @@ export default async function DashboardPage({
 }) {
   const data = await getDashboardData();
   const estimatedTaxRate = data.settings?.estimated_tax_rate ?? 0;
+  const showAdvisorDetails = Boolean(data.settings?.steuerberater_view);
 
   const visibleKpis = [
     {
-      label: "Zahlungseingaenge gesamt",
+      label: "Zahlungseingänge gesamt",
       value: data.kpis.paymentReceivedTotal,
-      note: "Summe aller tatsaechlich erhaltenen Zahlungen in Berichtswaehrung."
+      note: "Summe aller tatsächlich erhaltenen Zahlungen in Berichtswährung."
     },
     {
-      label: "Bank- und Wechselgebuehren",
+      label: "Bank- und Wechselgebühren",
       value: data.kpis.feeTotal,
-      note: "Alle Bankgebuehren, Zahlungsanbieter- und Wechselkurskosten."
+      note: "Alle Bankgebühren, Zahlungsanbieter- und Wechselkurskosten."
     },
     {
       label: "Fahrtkosten",
@@ -47,12 +48,12 @@ export default async function DashboardPage({
     {
       label: "Steuerlich absetzbare Kosten",
       value: data.kpis.deductibleCostTotal,
-      note: "Abziehbare Ausgaben plus Gebuehren, Fahrtkosten, Reisen und Abschreibungen."
+      note: "Abziehbare Ausgaben plus Gebühren, Fahrtkosten, Reisen und Abschreibungen."
     },
     {
       label: "Steuerlich relevanter Gewinn",
       value: data.kpis.taxRelevantProfit,
-      note: "Zahlungseingaenge gesamt minus steuerlich absetzbare Kosten."
+      note: "Zahlungseingänge gesamt minus steuerlich absetzbare Kosten."
     }
   ];
 
@@ -60,12 +61,16 @@ export default async function DashboardPage({
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Alle Kennzahlen werden direkt aus deiner Datenbank berechnet und klar in deiner Berichtswaehrung dargestellt."
+        description={
+          showAdvisorDetails
+            ? "Alle Kennzahlen werden direkt aus deiner Datenbank berechnet und klar in deiner Berichtswährung dargestellt."
+            : null
+        }
       />
 
       {searchParams?.reset === "1" ? (
         <Card className="border-emerald-200 bg-emerald-50">
-          <p className="text-sm text-emerald-700">Alle Daten wurden geloescht.</p>
+          <p className="text-sm text-emerald-700">Alle Daten wurden gelöscht.</p>
         </Card>
       ) : null}
 
@@ -75,7 +80,7 @@ export default async function DashboardPage({
             key={item.label}
             label={item.label}
             value={formatCurrency(item.value, data.reportingCurrency)}
-            note={item.note}
+            note={showAdvisorDetails ? item.note : undefined}
           />
         ))}
         <TaxRateCard
@@ -89,9 +94,9 @@ export default async function DashboardPage({
         <Card className="space-y-5">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">
-              Monatsuebersicht {data.businessYear}
+              Monatsübersicht {data.businessYear}
             </h2>
-            <p className="text-sm text-slate-600">
+            <p className="hidden text-sm text-slate-600 sm:block">
               Einnahmen, Kundenbeteiligungen, Kosten und Monatsresultat auf einen Blick.
             </p>
           </div>
@@ -116,7 +121,7 @@ export default async function DashboardPage({
 
                 <div className="mt-4 grid gap-3">
                   <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3 text-sm">
-                    <span className="text-slate-500">Zahlungseingaenge</span>
+                    <span className="text-slate-500">Zahlungseingänge</span>
                     <span className="font-medium text-slate-900">
                       {formatCurrency(row.incomes, data.reportingCurrency)}
                     </span>
@@ -143,7 +148,7 @@ export default async function DashboardPage({
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Monat</th>
-                  <th className="px-4 py-3">Zahlungseingaenge</th>
+                  <th className="px-4 py-3">Zahlungseingänge</th>
                   <th className="px-4 py-3">Kundenbeteiligung</th>
                   <th className="px-4 py-3">Kosten</th>
                   <th className="px-4 py-3">Resultat</th>
@@ -172,11 +177,12 @@ export default async function DashboardPage({
           </div>
         </Card>
 
+        {showAdvisorDetails ? (
         <Card className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Details</h2>
             <p className="text-sm text-slate-600">
-              Hilfreich fuer Plausibilitaetspruefung und offene Punkte.
+              Hilfreich für Plausibilitätsprüfung und offene Punkte.
             </p>
           </div>
 
@@ -205,7 +211,7 @@ export default async function DashboardPage({
 
             <div className="rounded-[1.35rem] bg-slate-50 p-4">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                Laender-Pauschalen
+                Länder-Pauschalen
               </p>
               <p className="mt-1 leading-6">
                 {data.rateReference.map((rate) => rate.country).join(", ")}
@@ -214,7 +220,7 @@ export default async function DashboardPage({
 
             <div className="rounded-[1.35rem] bg-slate-50 p-4">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                Berichtswaehrung
+                Berichtswährung
               </p>
               <p className="mt-1 text-base font-semibold text-slate-950">
                 {data.reportingCurrency}
@@ -222,6 +228,7 @@ export default async function DashboardPage({
             </div>
           </div>
         </Card>
+        ) : null}
       </div>
     </div>
   );

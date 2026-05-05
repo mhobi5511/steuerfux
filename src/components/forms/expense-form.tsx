@@ -111,7 +111,7 @@ export function ExpenseForm({
     <Card className="space-y-5">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-slate-950">Neue Ausgabe</h2>
-        <p className="text-sm text-slate-600">
+        <p className="hidden text-sm text-slate-600 sm:block">
           Standardfälle brauchen nur Datum, Beschreibung, Betrag und Währung. Alles Weitere ist optional.
         </p>
       </div>

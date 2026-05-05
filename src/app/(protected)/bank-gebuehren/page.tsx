@@ -13,7 +13,11 @@ export default async function BankFeesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Bank- & Wechselgebühren"
-        description="Diese Seite sammelt Bankgebühren, Wechselkursverluste, Zahlungsanbieter-Kosten und automatisch erkannte Zahlungsdifferenzen aus Einnahmen."
+        description={
+          settings?.steuerberater_view
+            ? "Diese Seite sammelt Bankgebühren, Wechselkursverluste, Zahlungsanbieter-Kosten und automatisch erkannte Zahlungsdifferenzen aus Einnahmen."
+            : null
+        }
       />
       <BankFeeForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}

@@ -47,7 +47,11 @@ export default async function IncomesPage({
     <div className="space-y-6">
       <PageHeader
         title="Einnahmen"
-        description="Hier trennst du Rechnungsbetrag und echten Zahlungseingang sauber voneinander. Originalbetrag, Originalwährung, Wechselkurs und Berichtswährung bleiben nachvollziehbar."
+        description={
+          settings?.steuerberater_view
+            ? "Hier trennst du Rechnungsbetrag und echten Zahlungseingang sauber voneinander. Originalbetrag, Originalwährung, Wechselkurs und Berichtswährung bleiben nachvollziehbar."
+            : null
+        }
       />
       <IncomeForm
         key={editing?.id ?? "new"}

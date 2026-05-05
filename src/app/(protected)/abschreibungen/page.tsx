@@ -19,7 +19,11 @@ export default async function DepreciationsPage({
     <div className="space-y-6">
       <PageHeader
         title="Abschreibungen"
-        description="Hier verwaltest du langlebige Anschaffungen getrennt von normalen Ausgaben. Die lineare Abschreibung wird automatisch in der Berichtswährung berechnet."
+        description={
+          settings?.steuerberater_view
+            ? "Hier verwaltest du langlebige Anschaffungen getrennt von normalen Ausgaben. Die lineare Abschreibung wird automatisch in der Berichtswährung berechnet."
+            : null
+        }
       />
       <DepreciationForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}

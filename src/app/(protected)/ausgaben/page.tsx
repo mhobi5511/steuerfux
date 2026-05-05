@@ -26,7 +26,11 @@ export default async function ExpensesPage({
     <div className="space-y-6">
       <PageHeader
         title="Ausgaben"
-        description="Erfasse Ausgaben mit Zahlungsdatum, Originalwährung, Abzugsfähigkeit, Belegstatus und optionaler Kundenbeteiligung."
+        description={
+          settings?.steuerberater_view
+            ? "Erfasse Ausgaben mit Zahlungsdatum, Originalwährung, Abzugsfähigkeit, Belegstatus und optionaler Kundenbeteiligung."
+            : null
+        }
       />
       <ExpenseForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}

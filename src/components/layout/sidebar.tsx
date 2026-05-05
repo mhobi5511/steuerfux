@@ -18,18 +18,18 @@ export function Sidebar() {
 
   return (
     <>
-      <div className="sticky top-0 z-40 -mx-3 mb-1 border-b border-white/70 bg-white/85 px-3 py-3 backdrop-blur-xl sm:-mx-4 sm:px-4 lg:hidden">
+      <div className="sticky top-0 z-40 -mx-3 mb-1 border-b border-slate-800 bg-slate-950/95 px-3 py-3 text-white backdrop-blur-xl sm:-mx-4 sm:px-4 lg:hidden">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Buchhaltung</p>
-            <p className="truncate text-base font-semibold text-slate-950">{appName}</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-300">Buchhaltung</p>
+            <p className="truncate text-base font-semibold text-white">{appName}</p>
           </div>
           <button
             type="button"
-            aria-label={isOpen ? "Menue schliessen" : "Menue oeffnen"}
+            aria-label={isOpen ? "Menü schließen" : "Menü öffnen"}
             aria-expanded={isOpen}
             onClick={() => setIsOpen((value) => !value)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-700 shadow-sm transition hover:bg-slate-50"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white text-slate-950 shadow-sm transition hover:bg-slate-100"
           >
             {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -40,11 +40,11 @@ export function Sidebar() {
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
-            aria-label="Menue schliessen"
+            aria-label="Menü schließen"
             onClick={() => setIsOpen(false)}
             className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
           />
-          <aside className="absolute right-3 top-3 flex h-[calc(100vh-1.5rem)] w-[min(88vw,22rem)] flex-col rounded-[2rem] border border-white/70 bg-white/96 p-4 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur-2xl">
+          <aside className="absolute right-3 top-3 flex h-[calc(100vh-1.5rem)] w-[min(88vw,22rem)] flex-col rounded-[2rem] border border-white/70 bg-white/96 p-4 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/96">
             <div className="mb-4 rounded-[1.6rem] bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_100%)] p-5 text-white">
               <p className="text-[11px] uppercase tracking-[0.22em] text-slate-300">Privater Bereich</p>
               <h1 className="mt-2 text-xl font-semibold">{appName}</h1>
@@ -88,7 +88,7 @@ export function Sidebar() {
           <p className="text-[11px] uppercase tracking-[0.22em] text-slate-300">Privater Bereich</p>
           <h1 className="mt-2 text-xl font-semibold">{appName}</h1>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            Einfach, klar und nur fuer deine eigenen Buchhaltungsdaten.
+            Einfach, klar und nur für deine eigenen Buchhaltungsdaten.
           </p>
         </div>
 

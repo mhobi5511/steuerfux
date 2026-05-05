@@ -227,7 +227,7 @@ export function TripForm({
         <h2 className="text-lg font-semibold text-slate-950">
           {isEditing ? "Reise bearbeiten" : "Neue Fahrt / Reise"}
         </h2>
-        <p className="text-sm leading-6 text-slate-600">
+        <p className="hidden text-sm leading-6 text-slate-600 sm:block">
           Trage deine Reise Schritt für Schritt ein: Start {">"} alle Zwischenstopps {">"} Rückkehr.
           Die Verpflegungspauschalen werden pro Kalendertag mit Land, Abwesenheit und
           Mahlzeitenkürzung aufgeschlüsselt.
@@ -318,7 +318,7 @@ export function TripForm({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-medium text-slate-950">Zwischenstopps</h3>
-              <p className="text-sm text-slate-600">
+              <p className="hidden text-sm text-slate-600 sm:block">
                 Erfasse pro Stopp Land, Zeitraum, Zweck und bereitgestellte Mahlzeiten.
               </p>
             </div>
@@ -460,7 +460,7 @@ export function TripForm({
         <div className="space-y-4">
           <div>
             <h3 className="font-medium text-slate-950">Fahrsegmente und Kilometer</h3>
-            <p className="text-sm text-slate-600">
+            <p className="hidden text-sm text-slate-600 sm:block">
               Der Rückweg zum Endpunkt bleibt immer sichtbar und wird separat erfasst.
             </p>
           </div>
@@ -498,7 +498,7 @@ export function TripForm({
         <div className="space-y-4">
           <div>
             <h3 className="font-medium text-slate-950">Verpflegungspauschalen pro Tag</h3>
-            <p className="text-sm text-slate-600">
+            <p className="hidden text-sm text-slate-600 sm:block">
               Die Berechnung berücksichtigt Zeitfenster, Land um 24:00 Uhr, private Stopps und
               Mahlzeitenkürzungen.
             </p>

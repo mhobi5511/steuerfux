@@ -10,9 +10,14 @@ export default async function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Einstellungen"
-        description="Hier legst du Standardwerte für Adresse, Währung, Geschäftsjahr und Kleinunternehmer-Modus fest. Diese Werte helfen bei schneller, konsistenter Datenerfassung."
+        description={
+          settings?.steuerberater_view
+            ? "Hier legst du Standardwerte für Adresse, Währung, Geschäftsjahr und Kleinunternehmer-Modus fest."
+            : null
+        }
       />
       <SettingsForm settings={settings} />
+      {settings?.steuerberater_view ? (
       <Card className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-950">Hinweise zur rechtlichen Einordnung</h2>
         <p className="text-sm leading-6 text-slate-600">
@@ -22,6 +27,7 @@ export default async function SettingsPage() {
           abgestimmt werden.
         </p>
       </Card>
+      ) : null}
     </div>
   );
 }

@@ -32,7 +32,7 @@ export function TaxRateCard({
   return (
     <Card className="space-y-4 rounded-[2rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,252,0.92)_100%)]">
       <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-slate-400">
-        Geschaetzte Steuerzahlung
+        Geschätzte Steuerzahlung
       </p>
       <p className="text-[1.85rem] font-semibold tracking-[-0.03em] text-slate-950 sm:text-2xl">
         {formatCurrency(estimatedPayment, reportingCurrency)}

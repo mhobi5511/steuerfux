@@ -35,7 +35,7 @@ export function BankFeeForm({
     <Card className="space-y-5">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-slate-950">Neue Gebühr</h2>
-        <p className="text-sm text-slate-600">
+        <p className="hidden text-sm text-slate-600 sm:block">
           Für Gebühren zählt nur ein Datum: das Datum der Gebühr. Dieser Tag wird auch für die Umrechnung in die Berichtswährung verwendet.
         </p>
       </div>
