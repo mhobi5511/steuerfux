@@ -44,7 +44,7 @@ export function Sidebar() {
             onClick={() => setIsOpen(false)}
             className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
           />
-          <aside className="absolute right-3 top-3 flex h-[calc(100vh-1.5rem)] w-[min(88vw,22rem)] flex-col rounded-[2rem] border border-white/70 bg-white/96 p-4 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/96">
+          <aside className="absolute right-3 top-3 flex h-[calc(100vh-1.5rem)] w-[min(88vw,22rem)] flex-col rounded-[2rem] border border-slate-200 bg-slate-50/96 p-4 shadow-[0_30px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/96">
             <div className="mb-4 rounded-[1.6rem] bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_100%)] p-5 text-white">
               <p className="text-[11px] uppercase tracking-[0.22em] text-slate-300">Privater Bereich</p>
               <h1 className="mt-2 text-xl font-semibold">{appName}</h1>
@@ -83,7 +83,7 @@ export function Sidebar() {
         </div>
       ) : null}
 
-      <aside className="hidden h-full w-full flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/88 p-4 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur-xl lg:flex">
+      <aside className="hidden h-full w-full flex-col gap-4 rounded-[2rem] border border-slate-200 bg-slate-50/90 p-4 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 lg:flex">
         <div className="rounded-[1.6rem] bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_100%)] p-5 text-white">
           <p className="text-[11px] uppercase tracking-[0.22em] text-slate-300">Privater Bereich</p>
           <h1 className="mt-2 text-xl font-semibold">{appName}</h1>

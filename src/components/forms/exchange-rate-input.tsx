@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 export function ExchangeRateInput({
   dateName,
@@ -12,7 +12,7 @@ export function ExchangeRateInput({
   fallbackRate,
   defaultRate = 1,
   label = "Wechselkurs CHF -> EUR",
-  hint = "Bei identischer Währung ist 1,00 korrekt. Sonst kannst du den historischen Kurs laden oder manuell überschreiben."
+  hint
 }: {
   dateName: string;
   rateName?: string;
@@ -46,7 +46,7 @@ export function ExchangeRateInput({
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       <Field label={label} hint={hint}>
         <Input
           name={rateName}
@@ -62,11 +62,8 @@ export function ExchangeRateInput({
       <input name={manualName} type="hidden" value={manual ? "true" : "false"} />
       <div className="flex flex-wrap gap-3">
         <Button type="button" variant="secondary" onClick={loadRate} disabled={pending}>
-          {pending ? "Kurs wird geladen..." : "Historischen Kurs laden"}
+          {pending ? "Kurs wird geladen..." : "Kurs laden"}
         </Button>
-        <span className="text-xs text-slate-500">
-          Wenn die Abfrage fehlschlägt, kannst du den Kurs trotzdem manuell eintragen.
-        </span>
       </div>
       {warning ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

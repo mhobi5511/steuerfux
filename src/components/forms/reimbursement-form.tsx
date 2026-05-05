@@ -40,7 +40,7 @@ export function ReimbursementForm({
     <Card className="space-y-5">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-slate-950">Neuer Zuschuss</h2>
-        <p className="hidden text-sm text-slate-600 sm:block">
+        <p className="hidden text-sm text-slate-600">
           Zuschüsse und Erstattungen werden getrennt von normalen Einnahmen dokumentiert, damit offene und bezahlte Rückerstattungen sauber sichtbar bleiben.
         </p>
       </div>

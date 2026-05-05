@@ -105,7 +105,7 @@ export default async function DashboardPage({
             {data.monthly.map((row) => (
               <div
                 key={row.month}
-                className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.22)]"
+                className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.22)] dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -187,7 +187,7 @@ export default async function DashboardPage({
           </div>
 
           <div className="space-y-3 text-sm text-slate-700">
-            <div className="rounded-[1.35rem] bg-slate-50 p-4">
+            <div className="rounded-[1.35rem] bg-slate-50 p-4 dark:bg-slate-900">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
                 Abschreibung
               </p>
@@ -200,7 +200,7 @@ export default async function DashboardPage({
               </p>
             </div>
 
-            <div className="rounded-[1.35rem] bg-slate-50 p-4">
+            <div className="rounded-[1.35rem] bg-slate-50 p-4 dark:bg-slate-900">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
                 Fahrtkosten
               </p>
@@ -209,7 +209,7 @@ export default async function DashboardPage({
               </p>
             </div>
 
-            <div className="rounded-[1.35rem] bg-slate-50 p-4">
+            <div className="rounded-[1.35rem] bg-slate-50 p-4 dark:bg-slate-900">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
                 Länder-Pauschalen
               </p>
@@ -218,7 +218,7 @@ export default async function DashboardPage({
               </p>
             </div>
 
-            <div className="rounded-[1.35rem] bg-slate-50 p-4">
+            <div className="rounded-[1.35rem] bg-slate-50 p-4 dark:bg-slate-900">
               <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
                 Berichtswährung
               </p>

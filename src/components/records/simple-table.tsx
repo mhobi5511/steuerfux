@@ -26,7 +26,7 @@ export function SimpleTable({
             {rows.map((row, rowIndex) => (
               <div
                 key={rowIndex}
-                className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.25)]"
+                className="min-w-0 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.25)] dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="space-y-3">
                   {row.map((cell, cellIndex) => (

@@ -51,7 +51,7 @@ export function DepreciationForm({
         <h2 className="text-lg font-semibold text-slate-950">
           {initialValues?.id ? "Abschreibung bearbeiten" : "Neue Abschreibung"}
         </h2>
-        <p className="hidden text-sm text-slate-600 sm:block">
+        <p className="hidden text-sm text-slate-600">
           Die App rechnet linear und zeigt jährlichen Betrag, bereits abgeschriebenen Anteil und Restwert in der Berichtswährung.
         </p>
       </div>

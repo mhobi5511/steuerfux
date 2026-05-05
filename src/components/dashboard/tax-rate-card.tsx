@@ -30,7 +30,7 @@ export function TaxRateCard({
   }, [taxRate, taxableProfit]);
 
   return (
-    <Card className="space-y-4 rounded-[2rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,252,0.92)_100%)]">
+    <Card className="space-y-4 rounded-[2rem] bg-slate-100/80 dark:bg-slate-900">
       <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-slate-400">
         Geschätzte Steuerzahlung
       </p>

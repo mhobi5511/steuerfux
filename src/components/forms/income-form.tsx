@@ -81,7 +81,7 @@ export function IncomeForm({
         <h2 className="text-lg font-semibold text-slate-950">
           {initialValues?.id ? "Einnahme bearbeiten" : "Neue Einnahme"}
         </h2>
-        <p className="hidden text-sm text-slate-600 sm:block">
+        <p className="hidden text-sm text-slate-600">
           Fulle nur das Nötigste aus. Die App leitet Status, Differenzen und mögliche Bankgebühren automatisch ab.
         </p>
       </div>
@@ -198,7 +198,7 @@ export function IncomeForm({
 
         <input name="tax_mode" type="hidden" value={initialValues?.tax_mode ?? defaultTaxMode} />
 
-        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4">
+        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
           <summary className="cursor-pointer text-sm font-medium text-slate-900">
             Mehr Optionen
           </summary>

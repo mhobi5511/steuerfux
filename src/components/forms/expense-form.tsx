@@ -111,7 +111,7 @@ export function ExpenseForm({
     <Card className="space-y-5">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-slate-950">Neue Ausgabe</h2>
-        <p className="hidden text-sm text-slate-600 sm:block">
+        <p className="hidden text-sm text-slate-600">
           Standardfälle brauchen nur Datum, Beschreibung, Betrag und Währung. Alles Weitere ist optional.
         </p>
       </div>
@@ -186,7 +186,7 @@ export function ExpenseForm({
 
         <input name="tax_mode" type="hidden" value={defaultTaxMode} />
 
-        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4">
+        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
           <summary className="cursor-pointer text-sm font-medium text-slate-900">
             Mehr Optionen
           </summary>
@@ -341,7 +341,7 @@ export function ExpenseForm({
           </>
         )}
 
-        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4">
+        <details className="lg:col-span-2 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
           <summary className="cursor-pointer text-sm font-medium text-slate-900">
             Abschreibung prüfen
           </summary>

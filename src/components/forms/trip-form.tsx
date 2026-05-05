@@ -227,7 +227,7 @@ export function TripForm({
         <h2 className="text-lg font-semibold text-slate-950">
           {isEditing ? "Reise bearbeiten" : "Neue Fahrt / Reise"}
         </h2>
-        <p className="hidden text-sm leading-6 text-slate-600 sm:block">
+        <p className="hidden text-sm leading-6 text-slate-600">
           Trage deine Reise Schritt für Schritt ein: Start {">"} alle Zwischenstopps {">"} Rückkehr.
           Die Verpflegungspauschalen werden pro Kalendertag mit Land, Abwesenheit und
           Mahlzeitenkürzung aufgeschlüsselt.
@@ -274,6 +274,7 @@ export function TripForm({
               defaultValue={initialTrip?.business_reason ?? ""}
             />
           </Field>
+          <div className="hidden">
           <Field label="Startpunkt">
             <Input
               name="start_point"
@@ -284,6 +285,8 @@ export function TripForm({
               }}
             />
           </Field>
+          </div>
+          <div className="hidden">
           <Field label="Endpunkt">
             <Input
               name="end_point"
@@ -294,6 +297,7 @@ export function TripForm({
               }}
             />
           </Field>
+          </div>
           <Field label="Startdatum + Startzeit">
             <Input
               name="start_at"
@@ -318,7 +322,7 @@ export function TripForm({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-medium text-slate-950">Zwischenstopps</h3>
-              <p className="hidden text-sm text-slate-600 sm:block">
+              <p className="hidden text-sm text-slate-600">
                 Erfasse pro Stopp Land, Zeitraum, Zweck und bereitgestellte Mahlzeiten.
               </p>
             </div>
@@ -329,12 +333,12 @@ export function TripForm({
 
           <div className="space-y-4">
             {stops.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">
+              <div className="hidden rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">
                 Noch keine Zwischenstopps. Start und Rückkehr bleiben trotzdem sichtbar.
               </div>
             ) : null}
             {stops.map((stop, index) => (
-              <Card key={stop.id} className="space-y-4 bg-slate-50">
+              <Card key={stop.id} className="space-y-4 bg-slate-50 dark:bg-slate-900">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-slate-950">Stopp {index + 1}</p>
                   <Button type="button" variant="ghost" onClick={() => removeStop(stop.id)}>
@@ -459,14 +463,14 @@ export function TripForm({
 
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-slate-950">Fahrsegmente und Kilometer</h3>
-            <p className="hidden text-sm text-slate-600 sm:block">
+            <h3 className="font-medium text-slate-950">Kilometer</h3>
+            <p className="hidden text-sm text-slate-600">
               Der Rückweg zum Endpunkt bleibt immer sichtbar und wird separat erfasst.
             </p>
           </div>
           <div className="grid gap-4">
             {segments.map((segment, index) => (
-              <Card key={segment.id} className="grid gap-4 bg-slate-50 lg:grid-cols-[1fr_180px]">
+              <Card key={segment.id} className="grid gap-4 bg-slate-50 dark:bg-slate-900 lg:grid-cols-[1fr_180px]">
                 <div>
                   <p className="text-sm font-medium text-slate-950">
                     {segment.from_label} {"->"} {segment.to_label}
@@ -497,13 +501,13 @@ export function TripForm({
 
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-slate-950">Verpflegungspauschalen pro Tag</h3>
-            <p className="hidden text-sm text-slate-600 sm:block">
+            <h3 className="font-medium text-slate-950">Verpflegung</h3>
+            <p className="hidden text-sm text-slate-600">
               Die Berechnung berücksichtigt Zeitfenster, Land um 24:00 Uhr, private Stopps und
               Mahlzeitenkürzungen.
             </p>
           </div>
-          <div className="overflow-x-auto rounded-2xl border border-line">
+          <div className="hidden overflow-x-auto rounded-2xl border border-line md:block">
             <table className="min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
@@ -549,7 +553,7 @@ export function TripForm({
           </div>
         </div>
 
-        <div className="grid gap-4 rounded-2xl border border-line bg-slate-50 p-4 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-4 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900 lg:grid-cols-2">
           <Field label="Kann an Kunden weiterberechnet werden?">
             <Select
               name="reimbursable_to_client"
