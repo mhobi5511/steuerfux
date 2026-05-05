@@ -21,13 +21,15 @@ export function IncomeForm({
   reportingCurrency,
   defaultCurrency,
   defaultTaxMode,
-  initialValues
+  initialValues,
+  showAdvisorDetails = false
 }: {
   fallbackRate: number;
   reportingCurrency: ReportingCurrency;
   defaultCurrency: CurrencyCode;
   defaultTaxMode: TaxMode;
   initialValues?: Income | null;
+  showAdvisorDetails?: boolean;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -220,6 +222,7 @@ export function IncomeForm({
           </div>
         </details>
 
+        {showAdvisorDetails ? (
         <div className="grid gap-4 lg:col-span-2 lg:grid-cols-3">
           <MoneyPreview
             value={preview.invoiceReporting}
@@ -253,6 +256,7 @@ export function IncomeForm({
             </p>
           </Card>
         </div>
+        ) : null}
 
         <div className="lg:col-span-2">
           <FormFeedback error={error} success={success} />

@@ -60,6 +60,7 @@ export default async function IncomesPage({
         defaultCurrency={settings?.default_currency ?? reportingCurrency}
         defaultTaxMode={settings?.default_tax_mode ?? "BRUTTO"}
         initialValues={editing}
+        showAdvisorDetails={Boolean(settings?.steuerberater_view)}
       />
       <MonthFilter action="/einnahmen" selectedMonth={selectedMonth} editId={searchParams?.edit} />
       <SimpleTable

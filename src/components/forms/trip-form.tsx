@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { homeAddressDefault, tripPurposeOptions } from "@/lib/constants";
+import { basePerDiemRates } from "@/lib/per-diem";
 import type {
   BusinessCountry,
   CurrencyCode,
@@ -20,7 +21,7 @@ import type {
   Trip,
   TripPurpose
 } from "@/lib/db-types";
-import { buildPerDiemBreakdown, calculateTripTotals } from "@/lib/trips";
+import { buildPerDiemBreakdown } from "@/lib/trips";
 import { formatCurrency, toDateTimeLocalValue } from "@/lib/utils";
 
 type Stop = {
@@ -43,6 +44,8 @@ type Segment = {
   kilometers: number;
   is_business: boolean;
 };
+
+const countryOptions = basePerDiemRates.map((rate) => rate.country);
 
 function createSegment(fromLabel: string, toLabel: string): Segment {
   return {
@@ -193,7 +196,6 @@ export function TripForm({
     rebuildSegments(startPoint, endPoint, nextStops);
   }
 
-  const totals = useMemo(() => calculateTripTotals(segments), [segments]);
   const perDiemPreview = useMemo(
     () =>
       buildPerDiemBreakdown({
@@ -358,14 +360,21 @@ export function TripForm({
                     />
                   </Field>
                   <Field label="Land">
-                    <Input
+                    <Select
                       value={stop.country}
                       onChange={(event) => {
                         const next = [...stops];
                         next[index].country = event.target.value;
                         setStops(next);
                       }}
-                    />
+                    >
+                      <option value="">Bitte wählen</option>
+                      {countryOptions.map((country) => (
+                        <option key={country} value={country}>
+                          {country}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                   <Field label="Ankunft an diesem Ort (Datum + Uhrzeit)">
                     <Input
@@ -416,45 +425,52 @@ export function TripForm({
                       }}
                     />
                   </Field>
-                  <Field label="Frühstück gestellt?">
-                    <Select
-                      value={stop.breakfast_provided ? "true" : "false"}
-                      onChange={(event) => {
-                        const next = [...stops];
-                        next[index].breakfast_provided = event.target.value === "true";
-                        setStops(next);
-                      }}
-                    >
-                      <option value="false">Nein</option>
-                      <option value="true">Ja</option>
-                    </Select>
-                  </Field>
-                  <Field label="Mittagessen gestellt?">
-                    <Select
-                      value={stop.lunch_provided ? "true" : "false"}
-                      onChange={(event) => {
-                        const next = [...stops];
-                        next[index].lunch_provided = event.target.value === "true";
-                        setStops(next);
-                      }}
-                    >
-                      <option value="false">Nein</option>
-                      <option value="true">Ja</option>
-                    </Select>
-                  </Field>
-                  <Field label="Abendessen gestellt?">
-                    <Select
-                      value={stop.dinner_provided ? "true" : "false"}
-                      onChange={(event) => {
-                        const next = [...stops];
-                        next[index].dinner_provided = event.target.value === "true";
-                        setStops(next);
-                      }}
-                    >
-                      <option value="false">Nein</option>
-                      <option value="true">Ja</option>
-                    </Select>
-                  </Field>
+                  <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900 lg:col-span-2">
+                    <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                      Mahlzeiten
+                    </summary>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                      <Field label="Frühstück gestellt?">
+                        <Select
+                          value={stop.breakfast_provided ? "true" : "false"}
+                          onChange={(event) => {
+                            const next = [...stops];
+                            next[index].breakfast_provided = event.target.value === "true";
+                            setStops(next);
+                          }}
+                        >
+                          <option value="false">Nein</option>
+                          <option value="true">Ja</option>
+                        </Select>
+                      </Field>
+                      <Field label="Mittagessen gestellt?">
+                        <Select
+                          value={stop.lunch_provided ? "true" : "false"}
+                          onChange={(event) => {
+                            const next = [...stops];
+                            next[index].lunch_provided = event.target.value === "true";
+                            setStops(next);
+                          }}
+                        >
+                          <option value="false">Nein</option>
+                          <option value="true">Ja</option>
+                        </Select>
+                      </Field>
+                      <Field label="Abendessen gestellt?">
+                        <Select
+                          value={stop.dinner_provided ? "true" : "false"}
+                          onChange={(event) => {
+                            const next = [...stops];
+                            next[index].dinner_provided = event.target.value === "true";
+                            setStops(next);
+                          }}
+                        >
+                          <option value="false">Nein</option>
+                          <option value="true">Ja</option>
+                        </Select>
+                      </Field>
+                    </div>
+                  </details>
                 </div>
               </Card>
             ))}
@@ -490,24 +506,13 @@ export function TripForm({
               </Card>
             ))}
           </div>
-          <Card className="grid gap-2 bg-slate-950 text-white">
-            <p className="text-sm text-slate-300">Fahrtkostenformel</p>
-            <p className="text-xl font-semibold">
-              {totals.totalKm.toFixed(1)} km x 0,30 ={" "}
-              {formatCurrency(totals.drivingDeduction, reportingCurrency)}
-            </p>
-          </Card>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <h3 className="font-medium text-slate-950">Verpflegung</h3>
-            <p className="hidden text-sm text-slate-600">
-              Die Berechnung berücksichtigt Zeitfenster, Land um 24:00 Uhr, private Stopps und
-              Mahlzeitenkürzungen.
-            </p>
-          </div>
-          <div className="hidden overflow-x-auto rounded-2xl border border-line md:block">
+        <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
+          <summary className="cursor-pointer text-sm font-medium text-slate-900">
+            Verpflegung
+          </summary>
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-line">
             <table className="min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
@@ -525,7 +530,7 @@ export function TripForm({
                 {perDiemPreview.breakdown.length === 0 ? (
                   <tr>
                     <td className="px-4 py-4 text-slate-500" colSpan={8}>
-                      Noch keine Tagesberechnung verfügbar. Trage Start, Ende und Stopps ein.
+                      Noch keine Tagesberechnung verfügbar.
                     </td>
                   </tr>
                 ) : (
@@ -551,7 +556,7 @@ export function TripForm({
               </tbody>
             </table>
           </div>
-        </div>
+        </details>
 
         <div className="grid min-w-0 gap-4 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900 lg:grid-cols-2">
           <Field label="Kann an Kunden weiterberechnet werden?">

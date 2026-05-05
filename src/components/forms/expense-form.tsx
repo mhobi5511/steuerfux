@@ -19,13 +19,15 @@ export function ExpenseForm({
   reportingCurrency,
   defaultCurrency,
   defaultTaxMode,
-  businessCountry
+  businessCountry,
+  showAdvisorDetails = false
 }: {
   fallbackRate: number;
   reportingCurrency: ReportingCurrency;
   defaultCurrency: CurrencyCode;
   defaultTaxMode: TaxMode;
   businessCountry: BusinessCountry;
+  showAdvisorDetails?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
@@ -379,6 +381,7 @@ export function ExpenseForm({
           </div>
         </details>
 
+        {showAdvisorDetails ? (
         <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
           <MoneyPreview
             value={preview.amountReporting}
@@ -405,6 +408,7 @@ export function ExpenseForm({
             description="Nach Kundenbeteiligung bleibt dieser Betrag steuerlich relevant."
           />
         </div>
+        ) : null}
 
         <div className="lg:col-span-2">
           <FormFeedback error={error} success={success} />

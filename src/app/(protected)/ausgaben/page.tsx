@@ -38,6 +38,7 @@ export default async function ExpensesPage({
         defaultCurrency={settings?.default_currency ?? reportingCurrency}
         defaultTaxMode={settings?.default_tax_mode ?? "BRUTTO"}
         businessCountry={settings?.business_country ?? "Deutschland"}
+        showAdvisorDetails={Boolean(settings?.steuerberater_view)}
       />
       <MonthFilter action="/ausgaben" selectedMonth={selectedMonth} />
       <SimpleTable

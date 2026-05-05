@@ -1,7 +1,6 @@
-import { deleteBankFee } from "@/app/actions/finance";
 import { BankFeeForm } from "@/components/forms/bank-fee-form";
 import { PageHeader } from "@/components/layout/page-header";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { SimpleTable } from "@/components/records/simple-table";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -25,15 +24,13 @@ export default async function BankFeesPage() {
       />
       <SimpleTable
         title="Gespeicherte Gebühren"
-        columns={["Datum", "Art", "Originalbetrag", "Berichtswährung", "Beschreibung", "Aktion"]}
+        columns={["Datum", "Art", "Berichtswährung"]}
         emptyText="Noch keine Gebühren erfasst."
+        compactMobile
         rows={fees.map((fee) => [
           formatDate(fee.fee_date),
           fee.fee_type,
-          formatCurrency(fee.original_amount, fee.currency),
-          formatCurrency(fee.amount_reporting, reportingCurrency),
-          fee.description ?? "—",
-          <DeleteButton key={fee.id} id={fee.id} action={deleteBankFee} />
+          formatCurrency(fee.amount_reporting, reportingCurrency)
         ])}
       />
     </div>
