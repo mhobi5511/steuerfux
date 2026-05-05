@@ -137,6 +137,8 @@ export function TripForm({
   const [segments, setSegments] = useState<Segment[]>(() =>
     mapTripToSegments(initialTrip, homeAddress)
   );
+  const [calculatingSegmentId, setCalculatingSegmentId] = useState<string | null>(null);
+  const [distanceError, setDistanceError] = useState<string | null>(null);
 
   const isEditing = Boolean(initialTrip?.id);
 
@@ -221,6 +223,43 @@ export function TripForm({
     setReimbursementCurrency(defaultCurrency);
     setReimbursementRate(1);
     setSegments(buildDefaultSegments(homeAddress));
+  }
+
+  async function calculateSegmentDistance(index: number) {
+    const segment = segments[index];
+    if (!segment) return;
+
+    setDistanceError(null);
+    setCalculatingSegmentId(segment.id);
+
+    try {
+      const response = await fetch("/api/maps/distance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          origin: segment.from_label,
+          destination: segment.to_label
+        })
+      });
+      const result = (await response.json()) as { kilometers?: number; error?: string };
+
+      if (!response.ok || typeof result.kilometers !== "number") {
+        setDistanceError(result.error ?? "Kilometer konnten nicht berechnet werden.");
+        return;
+      }
+
+      setSegments((current) =>
+        current.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, kilometers: result.kilometers ?? 0 } : item
+        )
+      );
+    } catch {
+      setDistanceError("Kilometer konnten nicht berechnet werden.");
+    } finally {
+      setCalculatingSegmentId(null);
+    }
   }
 
   return (
@@ -486,7 +525,10 @@ export function TripForm({
           </div>
           <div className="grid gap-4">
             {segments.map((segment, index) => (
-              <Card key={segment.id} className="grid gap-4 bg-slate-50 dark:bg-slate-900 lg:grid-cols-[1fr_180px]">
+              <Card
+                key={segment.id}
+                className="grid min-w-0 gap-4 bg-slate-50 dark:bg-slate-900 lg:grid-cols-[1fr_180px_180px]"
+              >
                 <div>
                   <p className="text-sm font-medium text-slate-950">
                     {segment.from_label} {"->"} {segment.to_label}
@@ -503,9 +545,23 @@ export function TripForm({
                     setSegments(next);
                   }}
                 />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => calculateSegmentDistance(index)}
+                  disabled={
+                    calculatingSegmentId === segment.id ||
+                    !segment.from_label.trim() ||
+                    !segment.to_label.trim()
+                  }
+                  className="w-full"
+                >
+                  {calculatingSegmentId === segment.id ? "Berechne..." : "Km berechnen"}
+                </Button>
               </Card>
             ))}
           </div>
+          {distanceError ? <p className="text-sm text-rose-600">{distanceError}</p> : null}
         </div>
 
         <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
