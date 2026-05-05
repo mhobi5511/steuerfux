@@ -258,16 +258,16 @@ export function IncomeForm({
           <FormFeedback error={error} success={success} />
         </div>
 
-        <div className="lg:col-span-2 flex justify-end gap-3">
+        <div className="lg:col-span-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           {initialValues?.id ? (
             <Link
               href="/einnahmen"
-              className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 md:min-h-10 md:py-2"
             >
               Bearbeitung beenden
             </Link>
           ) : null}
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
             {pending
               ? "Speichern..."
               : initialValues?.id

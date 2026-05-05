@@ -315,14 +315,14 @@ export function TripForm({
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-medium text-slate-950">Zwischenstopps</h3>
               <p className="text-sm text-slate-600">
                 Erfasse pro Stopp Land, Zeitraum, Zweck und bereitgestellte Mahlzeiten.
               </p>
             </div>
-            <Button type="button" variant="secondary" onClick={addStop}>
+            <Button type="button" variant="secondary" onClick={addStop} className="w-full sm:w-auto">
               Stopp hinzufügen
             </Button>
           </div>
@@ -504,7 +504,7 @@ export function TripForm({
             </p>
           </div>
           <div className="overflow-x-auto rounded-2xl border border-line">
-            <table className="min-w-full text-left text-sm">
+            <table className="min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Tag</th>
@@ -607,13 +607,13 @@ export function TripForm({
 
         <FormFeedback error={error} success={success} />
 
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
           {isEditing ? (
             <Link href="/fahrten-reisen">
-              <Button type="button" variant="secondary">Bearbeitung verlassen</Button>
+              <Button type="button" variant="secondary" className="w-full sm:w-auto">Bearbeitung verlassen</Button>
             </Link>
           ) : null}
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
             {pending ? "Speichern..." : isEditing ? "Reise aktualisieren" : "Reise speichern"}
           </Button>
         </div>

@@ -15,18 +15,18 @@ export function SimpleTable({
 }) {
   return (
     <Card className="overflow-hidden p-0">
-      <div className="border-b border-line px-5 py-4">
+      <div className="border-b border-line px-4 py-4 sm:px-5">
         <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
       </div>
       {rows.length === 0 ? (
-        <div className="px-5 py-8 text-sm text-slate-500">{emptyText}</div>
+        <div className="px-4 py-8 text-sm text-slate-500 sm:px-5">{emptyText}</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
+          <table className="min-w-[720px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 {columns.map((column) => (
-                  <th key={column} className="px-4 py-3 font-medium">
+                  <th key={column} className="px-3 py-3 font-medium sm:px-4">
                     {column}
                   </th>
                 ))}
@@ -36,7 +36,7 @@ export function SimpleTable({
               {rows.map((row, index) => (
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className="px-4 py-3 align-top text-slate-700">
+                    <td key={cellIndex} className="px-3 py-3 align-top text-slate-700 sm:px-4">
                       {cell}
                     </td>
                   ))}

@@ -68,7 +68,7 @@ export function MonthFilter({
         {editId ? <input name="edit" type="hidden" value={editId} /> : null}
         <label className="space-y-1 text-sm text-slate-700">
           <span>Monat</span>
-          <Select name="month" defaultValue={selectedMonth} className="sm:w-52">
+          <Select name="month" defaultValue={selectedMonth} className="w-full sm:w-52">
             <option value="all">Alle Monate</option>
             {getMonthOptions().map((option) => (
               <option key={option.value} value={option.value}>
@@ -77,12 +77,12 @@ export function MonthFilter({
             ))}
           </Select>
         </label>
-        <Button type="submit" variant="secondary">
+        <Button type="submit" variant="secondary" className="w-full sm:w-auto">
           Anwenden
         </Button>
         <Link
           href={resetHref}
-          className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          className="inline-flex min-h-12 items-center justify-center rounded-xl px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 md:min-h-10 md:py-2"
         >
           Alle Monate
         </Link>

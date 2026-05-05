@@ -164,7 +164,7 @@ export function SettingsForm({
             <FormFeedback error={error} success={success} />
           </div>
           <div className="lg:col-span-2 flex justify-end">
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending} className="w-full sm:w-auto">
               {pending ? "Speichern..." : "Einstellungen speichern"}
             </Button>
           </div>
@@ -179,7 +179,12 @@ export function SettingsForm({
           </p>
         </div>
         <div className="flex justify-start">
-          <Button type="button" variant="danger" onClick={() => setShowResetDialog(true)}>
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => setShowResetDialog(true)}
+            className="w-full sm:w-auto"
+          >
             Alle Daten löschen und neu starten
           </Button>
         </div>
@@ -196,12 +201,13 @@ export function SettingsForm({
               </p>
             </div>
             <FormFeedback error={error} success={null} />
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
               <Button
                 type="button"
                 variant="secondary"
                 onClick={() => setShowResetDialog(false)}
                 disabled={resetPending}
+                className="w-full sm:w-auto"
               >
                 Abbrechen
               </Button>
@@ -209,6 +215,7 @@ export function SettingsForm({
                 type="button"
                 variant="danger"
                 disabled={resetPending}
+                className="w-full sm:w-auto"
                 onClick={() =>
                   startResetTransition(async () => {
                     setError(null);
