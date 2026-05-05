@@ -558,50 +558,54 @@ export function TripForm({
           </div>
         </details>
 
-        <div className="grid min-w-0 gap-4 rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900 lg:grid-cols-2">
-          <Field label="Kann an Kunden weiterberechnet werden?">
-            <Select
-              name="reimbursable_to_client"
-              value={reimbursableToClient}
-              onChange={(event) => setReimbursableToClient(event.target.value)}
-            >
-              <option value="false">Nein</option>
-              <option value="true">Ja</option>
-            </Select>
-          </Field>
-          <Field label="Weiterberechenbarer Betrag">
-            <Input
-              name="reimbursement_amount_original"
-              type="number"
-              step="0.01"
-              value={reimbursementAmount}
-              onChange={(event) => setReimbursementAmount(event.target.value)}
-              disabled={reimbursableToClient !== "true"}
-            />
-          </Field>
-          <Field label="Währung des weiterberechenbaren Betrags">
-            <Select
-              name="reimbursement_currency"
-              value={reimbursementCurrency}
-              onChange={(event) => setReimbursementCurrency(event.target.value as CurrencyCode)}
-              disabled={reimbursableToClient !== "true"}
-            >
-              <option value="EUR">EUR</option>
-              <option value="CHF">CHF</option>
-            </Select>
-          </Field>
-          <div className="lg:col-span-2">
-            <ExchangeRateInput
-              dateName="start_at"
-              fallbackRate={fallbackRate}
-              defaultRate={reimbursementRate}
-              rateName="reimbursement_exchange_rate"
-              manualName="reimbursement_exchange_rate_manual"
-              label="Wechselkurs für weiterberechenbare Kosten"
-              hint="Nur relevant, wenn du weiterberechenbare Kosten in Fremdwährung erfasst."
-            />
+        <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
+          <summary className="cursor-pointer text-sm font-medium text-slate-900">
+            Kundenweiterberechnung
+          </summary>
+          <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
+            <Field label="Kann an Kunden weiterberechnet werden?">
+              <Select
+                name="reimbursable_to_client"
+                value={reimbursableToClient}
+                onChange={(event) => setReimbursableToClient(event.target.value)}
+              >
+                <option value="false">Nein</option>
+                <option value="true">Ja</option>
+              </Select>
+            </Field>
+            <Field label="Weiterberechenbarer Betrag">
+              <Input
+                name="reimbursement_amount_original"
+                type="number"
+                step="0.01"
+                value={reimbursementAmount}
+                onChange={(event) => setReimbursementAmount(event.target.value)}
+                disabled={reimbursableToClient !== "true"}
+              />
+            </Field>
+            <Field label="Währung des weiterberechenbaren Betrags">
+              <Select
+                name="reimbursement_currency"
+                value={reimbursementCurrency}
+                onChange={(event) => setReimbursementCurrency(event.target.value as CurrencyCode)}
+                disabled={reimbursableToClient !== "true"}
+              >
+                <option value="EUR">EUR</option>
+                <option value="CHF">CHF</option>
+              </Select>
+            </Field>
+            <div className="lg:col-span-2">
+              <ExchangeRateInput
+                dateName="start_at"
+                fallbackRate={fallbackRate}
+                defaultRate={reimbursementRate}
+                rateName="reimbursement_exchange_rate"
+                manualName="reimbursement_exchange_rate_manual"
+                label="Wechselkurs für weiterberechenbare Kosten"
+              />
+            </div>
           </div>
-        </div>
+        </details>
 
         <Field label="Notiz">
           <Textarea
