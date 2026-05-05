@@ -69,7 +69,7 @@ export default async function IncomesPage({
           `${formatCurrency(income.invoice_amount_original, income.currency)} (${income.tax_mode})`,
           `${income.exchange_rate}`,
           `${formatCurrency(income.invoice_amount_reporting, reportingCurrency)} / Zahlung ${formatCurrency(income.payment_received_reporting, reportingCurrency)}`,
-          <div key={income.id} className="flex gap-2">
+          <div key={income.id} className="flex flex-wrap gap-2">
             <Link href={`/einnahmen?edit=${income.id}&month=${selectedMonth}`}>
               <Button type="button" variant="ghost">
                 Bearbeiten

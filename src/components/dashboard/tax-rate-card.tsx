@@ -26,16 +26,18 @@ export function TaxRateCard({
   const estimatedPayment = useMemo(() => {
     const rate = Number(String(taxRate).replace(",", "."));
     if (!Number.isFinite(rate)) return 0;
-    return Math.max(taxableProfit, 0) * Math.max(rate, 0) / 100;
+    return (Math.max(taxableProfit, 0) * Math.max(rate, 0)) / 100;
   }, [taxRate, taxableProfit]);
 
   return (
-    <Card className="space-y-3">
-      <p className="text-sm text-slate-500">Geschätzte Steuerzahlung</p>
-      <p className="text-2xl font-semibold text-slate-950">
+    <Card className="space-y-4 rounded-[2rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,252,0.92)_100%)]">
+      <p className="text-[13px] font-medium uppercase tracking-[0.12em] text-slate-400">
+        Geschaetzte Steuerzahlung
+      </p>
+      <p className="text-[1.85rem] font-semibold tracking-[-0.03em] text-slate-950 sm:text-2xl">
         {formatCurrency(estimatedPayment, reportingCurrency)}
       </p>
-      <p className="text-xs text-slate-500">
+      <p className="text-sm leading-6 text-slate-500">
         Steuersatz auf Basis des steuerlich relevanten Gewinns.
       </p>
 
@@ -64,7 +66,7 @@ export function TaxRateCard({
             onChange={(event) => setTaxRate(event.target.value)}
           />
         </label>
-        <Button type="submit" variant="secondary" disabled={pending}>
+        <Button type="submit" variant="secondary" disabled={pending} className="w-full sm:w-auto">
           {pending ? "Speichern..." : "Steuersatz speichern"}
         </Button>
         <FormFeedback error={error} success={success} />

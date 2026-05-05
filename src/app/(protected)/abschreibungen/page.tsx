@@ -37,8 +37,11 @@ export default async function DepreciationsPage({
           formatCurrency(item.yearly_amount_reporting, reportingCurrency),
           formatCurrency(item.deducted_until_year_reporting, reportingCurrency),
           formatCurrency(item.remaining_value_reporting, reportingCurrency),
-          <div key={item.id} className="flex gap-3">
-            <Link href={`/abschreibungen?edit=${item.id}`} className="text-sm text-brand-700">
+          <div key={item.id} className="flex flex-wrap gap-2">
+            <Link
+              href={`/abschreibungen?edit=${item.id}`}
+              className="inline-flex min-h-10 items-center justify-center rounded-full bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700"
+            >
               Bearbeiten
             </Link>
             <DeleteButton id={item.id} action={deleteDepreciation} />

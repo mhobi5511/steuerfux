@@ -65,7 +65,7 @@ export default async function TripsPage({
           formatCurrency(trip.driving_deduction_reporting, reportingCurrency),
           formatCurrency(trip.total_per_diem_reporting, reportingCurrency),
           trip.mixed_trip_warning ?? "-",
-          <div key={trip.id} className="flex gap-2">
+          <div key={trip.id} className="flex flex-wrap gap-2">
             <Link href={`/fahrten-reisen?edit=${trip.id}&month=${selectedMonth}`}>
               <Button type="button" variant="ghost">
                 Bearbeiten
