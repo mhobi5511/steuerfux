@@ -1,12 +1,14 @@
 import { deleteExpense } from "@/app/actions/finance";
 import { ExpenseForm } from "@/components/forms/expense-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
 import {
   MonthFilter,
   getSelectedMonth,
   matchesSelectedMonth
 } from "@/components/records/month-filter";
 import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { ReceiptLink } from "@/components/records/receipt-link";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -15,8 +17,9 @@ export default async function ExpensesPage({
 }: {
   searchParams?: { month?: string };
 }) {
-  const { expenses, settings } = await getModuleData();
+  const { expenses, settings, activeBuchhaltung } = await getModuleData();
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
+  const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const selectedMonth = getSelectedMonth(searchParams?.month);
   const filteredExpenses = expenses.filter((expense) =>
     matchesSelectedMonth(expense.payment_date || expense.expense_date, selectedMonth)
@@ -32,6 +35,7 @@ export default async function ExpensesPage({
             : null
         }
       />
+      {readOnly ? <ReadOnlyNotice /> : (
       <ExpenseForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}
         reportingCurrency={reportingCurrency}
@@ -40,10 +44,11 @@ export default async function ExpensesPage({
         businessCountry={settings?.business_country ?? "Deutschland"}
         showAdvisorDetails={Boolean(settings?.steuerberater_view)}
       />
+      )}
       <MonthFilter action="/ausgaben" selectedMonth={selectedMonth} />
       <SimpleTable
         title="Gespeicherte Ausgaben"
-        columns={["Zahlungsdatum", "Kategorie", "Beschreibung", "Originalbetrag", "Kundenbeteiligung", "Effektive Kosten", "Aktion"]}
+        columns={["Zahlungsdatum", "Kategorie", "Beschreibung", "Originalbetrag", "Kundenbeteiligung", "Effektive Kosten", "Beleg", "Aktion"]}
         emptyText="Noch keine Ausgaben erfasst."
         rows={filteredExpenses.map((expense) => [
           formatDate(expense.payment_date || expense.expense_date),
@@ -56,7 +61,15 @@ export default async function ExpensesPage({
               : `${expense.client_share_percentage}% / ${formatCurrency(expense.client_share_amount_reporting, reportingCurrency)}`
             : "Keine",
           `${formatCurrency(expense.effective_amount_reporting ?? expense.amount_reporting, reportingCurrency)} / absetzbar ${formatCurrency(expense.effective_deductible_amount_reporting ?? expense.deductible_amount_reporting, reportingCurrency)}`,
-          <DeleteButton key={expense.id} id={expense.id} action={deleteExpense} />
+          expense.receipts?.[0]?.id ? (
+            <div key={`${expense.id}-receipt`} className="space-y-1">
+              <p>Beleg vorhanden</p>
+              <ReceiptLink receiptId={expense.receipts[0].id} />
+            </div>
+          ) : (
+            "Kein Beleg"
+          ),
+          readOnly ? "Schreibgeschützt" : <DeleteButton key={expense.id} id={expense.id} action={deleteExpense} />
         ])}
       />
     </div>

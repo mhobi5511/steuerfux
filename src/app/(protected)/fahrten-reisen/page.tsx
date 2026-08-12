@@ -2,6 +2,7 @@ import Link from "next/link";
 import { deleteTrip } from "@/app/actions/finance";
 import { TripForm } from "@/components/forms/trip-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
 import {
   MonthFilter,
   getSelectedMonth,
@@ -17,8 +18,9 @@ export default async function TripsPage({
 }: {
   searchParams?: { edit?: string; month?: string };
 }) {
-  const { trips, reimbursements, settings } = await getModuleData();
+  const { trips, reimbursements, settings, activeBuchhaltung } = await getModuleData();
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
+  const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const initialTrip = trips.find((trip) => trip.id === searchParams?.edit) ?? null;
   const initialReimbursement =
     reimbursements.find((item) => item.source_trip_id === searchParams?.edit) ?? null;
@@ -35,6 +37,7 @@ export default async function TripsPage({
             : null
         }
       />
+      {readOnly ? <ReadOnlyNotice /> : (
       <TripForm
         key={initialTrip?.id ?? "new"}
         homeAddress={settings?.default_home_address}
@@ -45,6 +48,7 @@ export default async function TripsPage({
         initialTrip={initialTrip}
         initialReimbursement={initialReimbursement}
       />
+      )}
       <MonthFilter
         action="/fahrten-reisen"
         selectedMonth={selectedMonth}
@@ -69,7 +73,7 @@ export default async function TripsPage({
           formatCurrency(trip.driving_deduction_reporting, reportingCurrency),
           formatCurrency(trip.total_per_diem_reporting, reportingCurrency),
           trip.mixed_trip_warning ?? "-",
-          <div key={trip.id} className="flex flex-wrap gap-2">
+          readOnly ? "Schreibgeschützt" : <div key={trip.id} className="flex flex-wrap gap-2">
             <Link href={`/fahrten-reisen?edit=${trip.id}&month=${selectedMonth}`}>
               <Button type="button" variant="ghost">
                 Bearbeiten

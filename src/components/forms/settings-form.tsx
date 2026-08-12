@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { resetAllUserData, saveSettings } from "@/app/actions/finance";
+import { resetAllUserData, resetCurrentBuchhaltungData, saveSettings } from "@/app/actions/finance";
 import { FormFeedback } from "@/components/forms/form-feedback";
 import { useTheme } from "@/components/theme/theme-provider";
 import { Button } from "@/components/ui/button";
@@ -173,9 +173,9 @@ export function SettingsForm({
 
       <Card className="space-y-4">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-slate-950">Komplett zurücksetzen</h2>
+          <h2 className="text-lg font-semibold text-slate-950">Daten loeschen</h2>
           <p className="text-sm leading-6 text-slate-600">
-            Nutze diese Funktion nur, wenn du wirklich komplett neu starten möchtest.
+            Waehle, ob nur die aktuelle Buchhaltung oder alle Buchhaltungen geloescht werden.
           </p>
         </div>
         <div className="flex justify-start">
@@ -185,7 +185,7 @@ export function SettingsForm({
             onClick={() => setShowResetDialog(true)}
             className="w-full sm:w-auto"
           >
-            Alle Daten löschen und neu starten
+            Daten loeschen
           </Button>
         </div>
       </Card>
@@ -220,6 +220,31 @@ export function SettingsForm({
                   startResetTransition(async () => {
                     setError(null);
                     setSuccess(null);
+                    const result = await resetCurrentBuchhaltungData();
+
+                    if (result.error) {
+                      setError(result.error);
+                      return;
+                    }
+
+                    setShowResetDialog(false);
+                    router.push("/dashboard?reset=1");
+                    router.refresh();
+                  })
+                }
+              >
+                {resetPending ? "Loesche..." : "Nur aktuelle Buchhaltung loeschen"}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={resetPending}
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (!confirm("Alle Buchhaltungen und Daten wirklich loeschen?")) return;
+                  startResetTransition(async () => {
+                    setError(null);
+                    setSuccess(null);
                     const result = await resetAllUserData();
 
                     if (result.error) {
@@ -231,10 +256,10 @@ export function SettingsForm({
                     setShowResetDialog(false);
                     router.push("/dashboard?reset=1");
                     router.refresh();
-                  })
-                }
+                  });
+                }}
               >
-                {resetPending ? "Lösche..." : "Endgültig löschen"}
+                Alle Buchhaltungen und Daten loeschen
               </Button>
             </div>
           </Card>

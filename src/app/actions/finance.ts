@@ -1,7 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { requireUser } from "@/lib/auth";
+import {
+  applyBuchhaltungSettings,
+  assertWritableBuchhaltung,
+  getSelectedBuchhaltung,
+  selectedBuchhaltungCookie
+} from "@/lib/buchhaltungen";
 import {
   convertToReportingCurrency,
   fetchHistoricalChfEurRate,
@@ -29,6 +36,26 @@ async function getUserSettings(
 ): Promise<AppSettings | null> {
   const { data } = await supabase.from("settings").select("*").maybeSingle();
   return data as AppSettings | null;
+}
+
+async function getActionContext(writable = false) {
+  const { supabase, user } = await requireUser();
+  const rawSettings = await getUserSettings(supabase);
+  const { buchhaltungen, activeBuchhaltung } = await getSelectedBuchhaltung(
+    supabase,
+    user,
+    rawSettings
+  );
+  const writeError = writable ? assertWritableBuchhaltung(activeBuchhaltung) : null;
+
+  return {
+    supabase,
+    user,
+    settings: applyBuchhaltungSettings(rawSettings, activeBuchhaltung) as AppSettings | null,
+    buchhaltungen,
+    activeBuchhaltung,
+    writeError
+  };
 }
 
 function getReportingContext(settings: AppSettings | null) {
@@ -68,6 +95,7 @@ async function upsertExpenseDepreciation({
   supabase,
   userId,
   expenseId,
+  buchhaltungId,
   values,
   reportingCurrency,
   reportingAmount,
@@ -76,6 +104,7 @@ async function upsertExpenseDepreciation({
   supabase: Awaited<ReturnType<typeof requireUser>>["supabase"];
   userId: string;
   expenseId: string;
+  buchhaltungId: string;
   values: {
     description: string;
     original_amount: number;
@@ -103,6 +132,7 @@ async function upsertExpenseDepreciation({
 
   const payload = {
     user_id: userId,
+    buchhaltung_id: buchhaltungId,
     linked_expense_id: expenseId,
     description: values.description,
     original_amount: values.original_amount,
@@ -127,10 +157,16 @@ async function upsertExpenseDepreciation({
     .select("id")
     .eq("linked_expense_id", expenseId)
     .eq("user_id", userId)
+    .eq("buchhaltung_id", buchhaltungId)
     .maybeSingle();
 
   if (existing?.id) {
-    await supabase.from("depreciations").update(payload).eq("id", existing.id).eq("user_id", userId);
+    await supabase
+      .from("depreciations")
+      .update(payload)
+      .eq("id", existing.id)
+      .eq("user_id", userId)
+      .eq("buchhaltung_id", buchhaltungId);
   } else {
     await supabase.from("depreciations").insert(payload);
   }
@@ -173,8 +209,8 @@ async function removeTripReimbursement(
 }
 
 export async function upsertIncome(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { reportingCurrency } = getReportingContext(settings);
 
   const parsed = incomeSchema.safeParse({
@@ -193,7 +229,7 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "UngÃ¼ltige Eingabe." };
   }
 
   const values = parsed.data;
@@ -223,6 +259,7 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
 
   const payload = {
     user_id: user.id,
+    buchhaltung_id: activeBuchhaltung!.id,
     invoice_date: values.invoice_date,
     payment_date: values.payment_date || null,
     customer_project: values.customer_project,
@@ -246,6 +283,7 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
 
   const query = incomeId
     ? supabase.from("incomes").update(payload).eq("id", incomeId).eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id)
     : supabase.from("incomes").insert(payload).select("id").single();
 
   const { data, error } = await query;
@@ -270,6 +308,7 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
     await supabase.from("bank_fees").upsert(
       {
         user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
         fee_date: values.payment_date || values.invoice_date,
         original_amount: differenceOriginal,
         currency: values.currency,
@@ -290,6 +329,7 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
       .delete()
       .eq("related_income_id", relatedIncomeId)
       .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeBuchhaltung!.id)
       .eq("fee_type", "Zahlungsdifferenz aus Einnahme");
   }
 
@@ -300,22 +340,24 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteIncome(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("incomes").delete().eq("id", id).eq("user_id", user.id);
+  await supabase.from("incomes").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
   await supabase
     .from("bank_fees")
     .delete()
     .eq("related_income_id", id)
     .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung!.id)
     .eq("fee_type", "Zahlungsdifferenz aus Einnahme");
   revalidatePath("/einnahmen");
   revalidatePath("/bank-gebuehren");
 }
 
 export async function upsertExpense(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { businessCountry, reportingCurrency } = getReportingContext(settings);
 
   const parsed = expenseSchema.safeParse({
@@ -348,7 +390,7 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Ungültige Ausgabe." };
+    return { error: parsed.error.issues[0]?.message ?? "UngÃ¼ltige Ausgabe." };
   }
 
   const values = parsed.data;
@@ -417,6 +459,7 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
 
   const payload = {
     user_id: user.id,
+    buchhaltung_id: activeBuchhaltung!.id,
     expense_date: values.payment_date,
     payment_date: values.payment_date,
     category: values.category?.trim() || "Allgemein",
@@ -462,6 +505,7 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
         .update(payload)
         .eq("id", expenseId)
         .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id)
         .select("id")
         .single()
     : await supabase.from("expenses").insert(payload).select("id").single();
@@ -476,6 +520,7 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
       supabase,
       userId: user.id,
       expenseId: data.id,
+      buchhaltungId: activeBuchhaltung!.id,
       values,
       reportingCurrency,
       reportingAmount: amountReporting,
@@ -485,10 +530,58 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
 
   await removeLegacyExpenseReimbursement(supabase, user.id, data.id);
 
+  const receipt = formData.get("receipt_file");
+  let receiptUploadFailed = false;
+  if (receipt instanceof File && receipt.size > 0) {
+    const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storagePath = `${user.id}/${activeBuchhaltung!.id}/${data.id}/${crypto.randomUUID()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("receipts")
+      .upload(storagePath, receipt, {
+        contentType: receipt.type || "application/octet-stream",
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error("receipt upload error:", uploadError);
+      receiptUploadFailed = true;
+    } else {
+      await supabase
+        .from("receipts")
+        .delete()
+        .eq("expense_id", data.id)
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id);
+      const { error: receiptError } = await supabase.from("receipts").insert({
+        user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
+        expense_id: data.id,
+        storage_path: storagePath,
+        original_filename: receipt.name,
+        mime_type: receipt.type || "application/octet-stream",
+        file_size: receipt.size
+      });
+      if (receiptError) {
+        console.error("receipt metadata error:", receiptError);
+        receiptUploadFailed = true;
+      } else {
+        await supabase
+          .from("expenses")
+          .update({ receipt_available: true })
+          .eq("id", data.id)
+          .eq("user_id", user.id)
+          .eq("buchhaltung_id", activeBuchhaltung!.id);
+      }
+    }
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/ausgaben");
   revalidatePath("/abschreibungen");
   return {
+    error: receiptUploadFailed
+      ? "Ausgabe wurde gespeichert, Beleg konnte jedoch nicht hochgeladen werden."
+      : undefined,
     success: suggestion.warning
       ? `Ausgabe erfolgreich gespeichert. ${suggestion.warning}`
       : "Ausgabe erfolgreich gespeichert."
@@ -496,18 +589,28 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteExpense(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("expenses").delete().eq("id", id).eq("user_id", user.id);
-  await supabase.from("depreciations").delete().eq("linked_expense_id", id).eq("user_id", user.id);
-  await supabase.from("reimbursements").delete().eq("source_expense_id", id).eq("user_id", user.id);
+  const { data: receipts } = await supabase
+    .from("receipts")
+    .select("storage_path")
+    .eq("expense_id", id)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung!.id);
+  const paths = (receipts ?? []).map((receipt) => receipt.storage_path);
+  if (paths.length) await supabase.storage.from("receipts").remove(paths);
+  await supabase.from("receipts").delete().eq("expense_id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("expenses").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("depreciations").delete().eq("linked_expense_id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("reimbursements").delete().eq("source_expense_id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
   revalidatePath("/ausgaben");
   revalidatePath("/abschreibungen");
 }
 
 export async function upsertBankFee(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { reportingCurrency } = getReportingContext(settings);
 
   const parsed = bankFeeSchema.safeParse({
@@ -522,7 +625,7 @@ export async function upsertBankFee(formData: FormData): Promise<ActionResult> {
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Ungültige Gebühr." };
+    return { error: parsed.error.issues[0]?.message ?? "UngÃ¼ltige GebÃ¼hr." };
   }
 
   const values = parsed.data;
@@ -540,6 +643,7 @@ export async function upsertBankFee(formData: FormData): Promise<ActionResult> {
         .from("bank_fees")
         .update({
           user_id: user.id,
+          buchhaltung_id: activeBuchhaltung!.id,
           fee_date: values.fee_date,
           original_amount: values.original_amount,
           currency: values.currency,
@@ -554,8 +658,10 @@ export async function upsertBankFee(formData: FormData): Promise<ActionResult> {
         })
         .eq("id", id)
         .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id)
     : await supabase.from("bank_fees").insert({
         user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
         fee_date: values.fee_date,
         original_amount: values.original_amount,
         currency: values.currency,
@@ -571,24 +677,25 @@ export async function upsertBankFee(formData: FormData): Promise<ActionResult> {
 
   if (error) {
     console.error("upsertBankFee error:", error);
-    return { error: "Gebühr konnte nicht gespeichert werden." };
+    return { error: "GebÃ¼hr konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/bank-gebuehren");
   revalidatePath("/dashboard");
-  return { success: "Gebühr erfolgreich gespeichert." };
+  return { success: "GebÃ¼hr erfolgreich gespeichert." };
 }
 
 export async function deleteBankFee(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("bank_fees").delete().eq("id", id).eq("user_id", user.id);
+  await supabase.from("bank_fees").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
   revalidatePath("/bank-gebuehren");
 }
 
 export async function upsertDepreciation(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { reportingCurrency } = getReportingContext(settings);
 
   const parsed = depreciationSchema.safeParse({
@@ -627,6 +734,7 @@ export async function upsertDepreciation(formData: FormData): Promise<ActionResu
 
   const payload = {
     user_id: user.id,
+    buchhaltung_id: activeBuchhaltung!.id,
     linked_expense_id: values.linked_expense_id,
     description: values.description,
     original_amount: values.original_amount,
@@ -647,7 +755,7 @@ export async function upsertDepreciation(formData: FormData): Promise<ActionResu
   };
 
   const { error } = id
-    ? await supabase.from("depreciations").update(payload).eq("id", id).eq("user_id", user.id)
+    ? await supabase.from("depreciations").update(payload).eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id)
     : await supabase.from("depreciations").insert(payload);
 
   if (error) {
@@ -661,15 +769,16 @@ export async function upsertDepreciation(formData: FormData): Promise<ActionResu
 }
 
 export async function deleteDepreciation(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("depreciations").delete().eq("id", id).eq("user_id", user.id);
+  await supabase.from("depreciations").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
   revalidatePath("/abschreibungen");
 }
 
 export async function upsertReimbursement(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { reportingCurrency } = getReportingContext(settings);
 
   const parsed = reimbursementSchema.safeParse({
@@ -723,7 +832,7 @@ export async function upsertReimbursement(formData: FormData): Promise<ActionRes
   };
 
   const { error } = id
-    ? await supabase.from("reimbursements").update(payload).eq("id", id).eq("user_id", user.id)
+    ? await supabase.from("reimbursements").update(payload).eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id)
     : await supabase.from("reimbursements").insert(payload);
 
   if (error) {
@@ -737,14 +846,15 @@ export async function upsertReimbursement(formData: FormData): Promise<ActionRes
 }
 
 export async function deleteReimbursement(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("reimbursements").delete().eq("id", id).eq("user_id", user.id);
+  await supabase.from("reimbursements").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
   revalidatePath("/zuschuesse");
 }
 
 export async function saveSettings(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung } = await getActionContext(false);
   const parsed = settingsSchema.safeParse({
     business_owner_name: formData.get("business_owner_name") || null,
     business_year: formData.get("business_year"),
@@ -760,7 +870,7 @@ export async function saveSettings(formData: FormData): Promise<ActionResult> {
   });
 
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Einstellungen sind unvollständig." };
+    return { error: parsed.error.issues[0]?.message ?? "Einstellungen sind unvollstÃ¤ndig." };
   }
 
   const payload = {
@@ -771,6 +881,22 @@ export async function saveSettings(formData: FormData): Promise<ActionResult> {
   if (error) {
     console.error("saveSettings error:", error);
     return { error: "Einstellungen konnten nicht gespeichert werden." };
+  }
+
+  if (activeBuchhaltung) {
+    const { error: buchhaltungError } = await supabase
+      .from("buchhaltungen")
+      .update({
+        country: parsed.data.business_country,
+        reporting_currency: parsed.data.reporting_currency
+      })
+      .eq("id", activeBuchhaltung.id)
+      .eq("user_id", user.id);
+
+    if (buchhaltungError) {
+      console.error("saveBuchhaltungSettings error:", buchhaltungError);
+      return { error: "Buchhaltung konnte nicht aktualisiert werden." };
+    }
   }
 
   revalidatePath("/einstellungen");
@@ -801,6 +927,116 @@ export async function saveEstimatedTaxRate(formData: FormData): Promise<ActionRe
   return { success: "Steuersatz erfolgreich gespeichert." };
 }
 
+export async function selectBuchhaltung(formData: FormData) {
+  const id = String(formData.get("buchhaltung_id") ?? "");
+  const { supabase, user } = await requireUser();
+  const { data } = await supabase
+    .from("buchhaltungen")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (data?.id) {
+    cookies().set(selectedBuchhaltungCookie, data.id, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365
+    });
+  }
+
+  revalidatePath("/", "layout");
+}
+
+export async function closeBuchhaltung(formData: FormData): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung } = await getActionContext(false);
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung anlegen." };
+  const endDate = String(formData.get("end_date") ?? "");
+  if (!endDate) return { error: "Bitte ein Enddatum angeben." };
+
+  const { error } = await supabase
+    .from("buchhaltungen")
+    .update({ status: "abgeschlossen", end_date: endDate })
+    .eq("id", activeBuchhaltung.id)
+    .eq("user_id", user.id);
+
+  if (error) return { error: "Buchhaltung konnte nicht abgeschlossen werden." };
+  revalidatePath("/", "layout");
+  return { success: "Buchhaltung wurde abgeschlossen." };
+}
+
+export async function reopenBuchhaltung(): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung } = await getActionContext(false);
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung anlegen." };
+
+  const { error } = await supabase
+    .from("buchhaltungen")
+    .update({ status: "aktiv", end_date: null })
+    .eq("id", activeBuchhaltung.id)
+    .eq("user_id", user.id);
+
+  if (error) return { error: "Buchhaltung konnte nicht wieder geoeffnet werden." };
+  revalidatePath("/", "layout");
+  return { success: "Buchhaltung wurde wieder geoeffnet." };
+}
+
+export async function createBuchhaltung(formData: FormData): Promise<ActionResult> {
+  const { supabase, user } = await requireUser();
+  const country = String(formData.get("country") ?? "Deutschland") as BusinessCountry;
+  const reportingCurrency = String(
+    formData.get("reporting_currency") ?? getReportingCurrency(country)
+  ) as ReportingCurrency;
+  const name = String(formData.get("name") ?? "").trim();
+  const startDate = String(formData.get("start_date") ?? "");
+
+  if (!name || !startDate) return { error: "Name und Startdatum sind erforderlich." };
+
+  const { data, error } = await supabase
+    .from("buchhaltungen")
+    .insert({
+      user_id: user.id,
+      name,
+      country,
+      reporting_currency: reportingCurrency,
+      start_date: startDate,
+      status: "aktiv"
+    })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) return { error: "Buchhaltung konnte nicht angelegt werden." };
+  cookies().set(selectedBuchhaltungCookie, data.id, {
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365
+  });
+  revalidatePath("/", "layout");
+  return { success: "Buchhaltung wurde angelegt." };
+}
+
+export async function getReceiptViewUrl(formData: FormData): Promise<ActionResult & { url?: string }> {
+  const { supabase, user, activeBuchhaltung } = await getActionContext(false);
+  const receiptId = String(formData.get("receipt_id") ?? "");
+  if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewÃ¤hlt." };
+
+  const { data: receipt } = await supabase
+    .from("receipts")
+    .select("storage_path")
+    .eq("id", receiptId)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .maybeSingle();
+
+  if (!receipt?.storage_path) return { error: "Beleg wurde nicht gefunden." };
+
+  const { data, error } = await supabase.storage
+    .from("receipts")
+    .createSignedUrl(receipt.storage_path, 60 * 5);
+
+  if (error || !data?.signedUrl) return { error: "Beleg konnte nicht geÃ¶ffnet werden." };
+  return { url: data.signedUrl };
+}
+
 export async function lookupExchangeRate(date: string, fallbackRate: number) {
   if (!date) {
     return {
@@ -821,18 +1057,60 @@ export async function lookupExchangeRate(date: string, fallbackRate: number) {
 async function deleteForCurrentUser(
   table: string,
   userId: string,
-  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  buchhaltungId?: string
 ) {
-  const { error } = await supabase.from(table).delete().eq("user_id", userId);
+  let query = supabase.from(table).delete().eq("user_id", userId);
+  if (buchhaltungId) query = query.eq("buchhaltung_id", buchhaltungId);
+  const { error } = await query;
   if (error) throw error;
+}
+
+async function removeReceiptFilesForUser(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  buchhaltungId?: string
+) {
+  let query = supabase.from("receipts").select("storage_path").eq("user_id", userId);
+  if (buchhaltungId) query = query.eq("buchhaltung_id", buchhaltungId);
+  const { data } = await query;
+  const paths = (data ?? []).map((receipt) => receipt.storage_path);
+  if (paths.length) await supabase.storage.from("receipts").remove(paths);
+}
+
+export async function resetCurrentBuchhaltungData(): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
+  const buchhaltungId = activeBuchhaltung!.id;
+
+  try {
+    await removeReceiptFilesForUser(supabase, user.id, buchhaltungId);
+    await deleteForCurrentUser("trip_segments", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("trip_stops", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("receipts", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("depreciations", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("bank_fees", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("reimbursements", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("trips", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("expenses", user.id, supabase, buchhaltungId);
+    await deleteForCurrentUser("incomes", user.id, supabase, buchhaltungId);
+
+    revalidatePath("/", "layout");
+    return { success: "Daten der aktuellen Buchhaltung wurden gelÃ¶scht." };
+  } catch (error) {
+    console.error("resetCurrentBuchhaltungData error:", error);
+    return { error: "Beim LÃ¶schen der aktuellen Buchhaltung ist ein Fehler aufgetreten." };
+  }
 }
 
 export async function resetAllUserData(): Promise<ActionResult> {
   const { supabase, user } = await requireUser();
 
   try {
+    await removeReceiptFilesForUser(supabase, user.id);
     await deleteForCurrentUser("trip_segments", user.id, supabase);
     await deleteForCurrentUser("trip_stops", user.id, supabase);
+    await deleteForCurrentUser("receipts", user.id, supabase);
     await deleteForCurrentUser("depreciations", user.id, supabase);
     await deleteForCurrentUser("bank_fees", user.id, supabase);
     await deleteForCurrentUser("reimbursements", user.id, supabase);
@@ -840,6 +1118,7 @@ export async function resetAllUserData(): Promise<ActionResult> {
     await deleteForCurrentUser("expenses", user.id, supabase);
     await deleteForCurrentUser("incomes", user.id, supabase);
     await deleteForCurrentUser("exchange_rates", user.id, supabase);
+    await deleteForCurrentUser("buchhaltungen", user.id, supabase);
 
     const resetSettings = {
       user_id: user.id,
@@ -848,7 +1127,7 @@ export async function resetAllUserData(): Promise<ActionResult> {
       business_country: "Deutschland" as const,
       reporting_currency: "EUR" as const,
       theme_mode: "system" as const,
-      default_home_address: "Ottobrunn, München, Deutschland",
+      default_home_address: "Ottobrunn, MÃ¼nchen, Deutschland",
       default_currency: "EUR" as const,
       default_manual_chf_eur_rate: 1,
       kleinunternehmer_mode: true,
@@ -876,16 +1155,17 @@ export async function resetAllUserData(): Promise<ActionResult> {
       "/einstellungen"
     ].forEach((path) => revalidatePath(path));
 
-    return { success: "Alle Daten wurden gelöscht" };
+    cookies().delete(selectedBuchhaltungCookie);
+    return { success: "Alle Daten wurden geloescht" };
   } catch (error) {
     console.error("resetAllUserData error:", error);
-    return { error: "Beim Löschen der Daten ist ein Fehler aufgetreten." };
+    return { error: "Beim Loeschen der Daten ist ein Fehler aufgetreten." };
   }
 }
 
 export async function createTrip(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { businessCountry, reportingCurrency } = getReportingContext(settings);
 
   const rawStops = String(formData.get("stops_json") ?? "[]");
@@ -940,6 +1220,7 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
     .from("trips")
     .insert({
       user_id: user.id,
+      buchhaltung_id: activeBuchhaltung!.id,
       title,
       business_reason: businessReason || title,
       start_point: startPoint,
@@ -954,7 +1235,7 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
       total_per_diem_reporting: perDiem.total,
       deductible_total_reporting: roundMoney(totals.drivingDeduction + perDiem.total),
       mixed_trip_warning: mixedTrip
-        ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prüfen."
+        ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prÃ¼fen."
         : null,
       per_diem_breakdown: perDiem.breakdown,
       reimbursable_to_client: reimbursableToClient,
@@ -972,13 +1253,14 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
     await supabase.from("trip_stops").insert(
       stops.map((stop, index) => ({
         user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
         trip_id: tripData.id,
         sort_order: index + 1,
         location: String(stop.location ?? ""),
         country: String(stop.country ?? ""),
         arrival_at: String(stop.arrival_at ?? ""),
         departure_at: String(stop.departure_at ?? ""),
-        purpose: String(stop.purpose ?? "Geschäftlich"),
+        purpose: String(stop.purpose ?? "GeschÃ¤ftlich"),
         breakfast_provided: Boolean(stop.breakfast_provided),
         lunch_provided: Boolean(stop.lunch_provided),
         dinner_provided: Boolean(stop.dinner_provided),
@@ -993,6 +1275,7 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
         const kilometers = toNumber(String(segment.kilometers ?? "0"), 0);
         return {
           user_id: user.id,
+          buchhaltung_id: activeBuchhaltung!.id,
           trip_id: tripData.id,
           sort_order: index + 1,
           from_label: String(segment.from_label ?? ""),
@@ -1017,6 +1300,7 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
       .from("reimbursements")
       .insert({
         user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
         reimbursement_date: startAt.slice(0, 10),
         description: `Weiterberechenbare Reisekosten: ${title}`,
         original_amount: reimbursementAmountOriginal,
@@ -1038,7 +1322,12 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
       .single();
 
     if (reimbursement?.id) {
-      await supabase.from("trips").update({ reimbursement_id: reimbursement.id }).eq("id", tripData.id).eq("user_id", user.id);
+      await supabase
+        .from("trips")
+        .update({ reimbursement_id: reimbursement.id })
+        .eq("id", tripData.id)
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id);
     }
   }
 
@@ -1049,8 +1338,8 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
 }
 
 export async function upsertTrip(formData: FormData): Promise<ActionResult> {
-  const { supabase, user } = await requireUser();
-  const settings = await getUserSettings(supabase);
+  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
   const { businessCountry, reportingCurrency } = getReportingContext(settings);
 
   const rawStops = String(formData.get("stops_json") ?? "[]");
@@ -1104,6 +1393,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
 
   const tripPayload = {
     user_id: user.id,
+    buchhaltung_id: activeBuchhaltung!.id,
     title,
     business_reason: businessReason || title,
     start_point: startPoint,
@@ -1118,7 +1408,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
     total_per_diem_reporting: perDiem.total,
     deductible_total_reporting: roundMoney(totals.drivingDeduction + perDiem.total),
     mixed_trip_warning: mixedTrip
-      ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prüfen."
+      ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prÃ¼fen."
       : null,
     per_diem_breakdown: perDiem.breakdown,
     reimbursable_to_client: reimbursableToClient
@@ -1130,6 +1420,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
         .update(tripPayload)
         .eq("id", tripId)
         .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id)
         .select("id, reimbursement_id")
         .single()
     : await supabase
@@ -1146,20 +1437,21 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
     return { error: "Reise konnte nicht gespeichert werden." };
   }
 
-  await supabase.from("trip_stops").delete().eq("trip_id", tripData.id).eq("user_id", user.id);
-  await supabase.from("trip_segments").delete().eq("trip_id", tripData.id).eq("user_id", user.id);
+  await supabase.from("trip_stops").delete().eq("trip_id", tripData.id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("trip_segments").delete().eq("trip_id", tripData.id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
 
   if (stops.length) {
     await supabase.from("trip_stops").insert(
       stops.map((stop, index) => ({
         user_id: user.id,
+        buchhaltung_id: activeBuchhaltung!.id,
         trip_id: tripData.id,
         sort_order: index + 1,
         location: String(stop.location ?? ""),
         country: String(stop.country ?? ""),
         arrival_at: String(stop.arrival_at ?? ""),
         departure_at: String(stop.departure_at ?? ""),
-        purpose: String(stop.purpose ?? "Geschäftlich"),
+        purpose: String(stop.purpose ?? "GeschÃ¤ftlich"),
         breakfast_provided: Boolean(stop.breakfast_provided),
         lunch_provided: Boolean(stop.lunch_provided),
         dinner_provided: Boolean(stop.dinner_provided),
@@ -1174,6 +1466,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
         const kilometers = toNumber(String(segment.kilometers ?? "0"), 0);
         return {
           user_id: user.id,
+          buchhaltung_id: activeBuchhaltung!.id,
           trip_id: tripData.id,
           sort_order: index + 1,
           from_label: String(segment.from_label ?? ""),
@@ -1196,6 +1489,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
     );
     const reimbursementPayload = {
       user_id: user.id,
+      buchhaltung_id: activeBuchhaltung!.id,
       reimbursement_date: startAt.slice(0, 10),
       description: `Weiterberechenbare Reisekosten: ${title}`,
       original_amount: reimbursementAmountOriginal,
@@ -1219,6 +1513,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
           .update(reimbursementPayload)
           .eq("id", tripData.reimbursement_id)
           .eq("user_id", user.id)
+          .eq("buchhaltung_id", activeBuchhaltung!.id)
           .select("id")
           .single()
       : await supabase
@@ -1232,7 +1527,8 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
         .from("trips")
         .update({ reimbursement_id: reimbursement.id })
         .eq("id", tripData.id)
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id);
     }
   } else {
     await removeTripReimbursement(supabase, user.id, tripData.id);
@@ -1245,13 +1541,14 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteTrip(formData: FormData) {
-  const { supabase, user } = await requireUser();
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return;
   const id = String(formData.get("id") ?? "");
 
   await removeTripReimbursement(supabase, user.id, id);
-  await supabase.from("trip_segments").delete().eq("trip_id", id).eq("user_id", user.id);
-  await supabase.from("trip_stops").delete().eq("trip_id", id).eq("user_id", user.id);
-  await supabase.from("trips").delete().eq("id", id).eq("user_id", user.id);
+  await supabase.from("trip_segments").delete().eq("trip_id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("trip_stops").delete().eq("trip_id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  await supabase.from("trips").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
 
   revalidatePath("/fahrten-reisen");
   revalidatePath("/dashboard");

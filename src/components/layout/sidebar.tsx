@@ -5,10 +5,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Menu, X } from "lucide-react";
 import { logout } from "@/app/actions/auth";
+import { BuchhaltungSelector } from "@/components/layout/buchhaltung-selector";
 import { appName, navItems } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import type { Buchhaltung } from "@/lib/db-types";
 
-export function Sidebar() {
+export function Sidebar({
+  buchhaltungen = [],
+  activeBuchhaltung = null
+}: {
+  buchhaltungen?: Buchhaltung[];
+  activeBuchhaltung?: Buchhaltung | null;
+}) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -70,6 +78,11 @@ export function Sidebar() {
               ))}
             </nav>
 
+            <BuchhaltungSelector
+              buchhaltungen={buchhaltungen}
+              activeBuchhaltung={activeBuchhaltung}
+            />
+
             <form action={logout} className="mt-auto">
               <button
                 className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
@@ -108,6 +121,8 @@ export function Sidebar() {
             </Link>
           ))}
         </nav>
+
+        <BuchhaltungSelector buchhaltungen={buchhaltungen} activeBuchhaltung={activeBuchhaltung} />
 
         <form action={logout} className="mt-auto">
           <button

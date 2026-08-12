@@ -23,6 +23,8 @@ export async function GET(
   const { searchParams } = new URL(request.url);
   const year = Number(searchParams.get("year") ?? new Date().getFullYear());
   const data = await getModuleData(year);
+  const buchhaltung = data.activeBuchhaltung;
+  const receiptCount = data.expenses.filter((expense) => expense.receipts?.length).length;
 
   const map: Record<string, Record<string, unknown>[]> = {
     einnahmen: data.incomes,
@@ -33,7 +35,15 @@ export async function GET(
     jahresuebersicht: [
       {
         jahr: year,
+        buchhaltung_name: buchhaltung?.name,
+        buchhaltung_land: buchhaltung?.country,
+        buchhaltung_startdatum: buchhaltung?.start_date,
+        buchhaltung_enddatum: buchhaltung?.end_date,
+        buchhaltung_status: buchhaltung?.status,
         berichtswaehrung: data.settings?.reporting_currency ?? "EUR",
+        buchungen_ausgaben: data.expenses.length,
+        ausgaben_mit_beleg: receiptCount,
+        ausgaben_ohne_beleg: data.expenses.length - receiptCount,
         einnahmen_gesamt: data.incomes.reduce((sum, row) => sum + (row.payment_received_reporting ?? 0), 0),
         offene_einnahmen: data.incomes.reduce(
           (sum, row) => sum + (isIncomePaid(row.status) ? 0 : (row.difference_reporting ?? 0)),
@@ -59,7 +69,12 @@ export async function GET(
         verpflegungspauschalen: data.trips.reduce((sum, row) => sum + (row.total_per_diem_reporting ?? 0), 0),
         abschreibungen: data.depreciations.reduce((sum, row) => sum + (row.yearly_amount_reporting ?? 0), 0)
       }
-    ]
+    ],
+    beleguebersicht: data.expenses.map((expense) => ({
+      zahlungsdatum: expense.payment_date || expense.expense_date,
+      beschreibung: expense.description,
+      beleg: expense.receipts?.length ? "Beleg vorhanden" : "Kein Beleg"
+    }))
   };
 
   const rows = map[params.type];

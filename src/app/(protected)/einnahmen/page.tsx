@@ -2,6 +2,7 @@ import Link from "next/link";
 import { deleteIncome } from "@/app/actions/finance";
 import { IncomeForm } from "@/components/forms/income-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
 import {
   MonthFilter,
   getSelectedMonth,
@@ -35,8 +36,9 @@ export default async function IncomesPage({
 }: {
   searchParams?: { edit?: string; month?: string };
 }) {
-  const { incomes, settings } = await getModuleData();
+  const { incomes, settings, activeBuchhaltung } = await getModuleData();
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
+  const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const editing = incomes.find((income) => income.id === searchParams?.edit) ?? null;
   const selectedMonth = getSelectedMonth(searchParams?.month);
   const filteredIncomes = incomes.filter((income) =>
@@ -53,6 +55,7 @@ export default async function IncomesPage({
             : null
         }
       />
+      {readOnly ? <ReadOnlyNotice /> : (
       <IncomeForm
         key={editing?.id ?? "new"}
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}
@@ -62,6 +65,7 @@ export default async function IncomesPage({
         initialValues={editing}
         showAdvisorDetails={Boolean(settings?.steuerberater_view)}
       />
+      )}
       <MonthFilter action="/einnahmen" selectedMonth={selectedMonth} editId={searchParams?.edit} />
       <SimpleTable
         title="Gespeicherte Einnahmen"
@@ -74,7 +78,7 @@ export default async function IncomesPage({
           `${formatCurrency(income.invoice_amount_original, income.currency)} (${income.tax_mode})`,
           `${income.exchange_rate}`,
           `${formatCurrency(income.invoice_amount_reporting, reportingCurrency)} / Zahlung ${formatCurrency(income.payment_received_reporting, reportingCurrency)}`,
-          <div key={income.id} className="flex flex-wrap gap-2">
+          readOnly ? "Schreibgeschützt" : <div key={income.id} className="flex flex-wrap gap-2">
             <Link href={`/einnahmen?edit=${income.id}&month=${selectedMonth}`}>
               <Button type="button" variant="ghost">
                 Bearbeiten

@@ -1,12 +1,14 @@
 import { BankFeeForm } from "@/components/forms/bank-fee-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
 import { SimpleTable } from "@/components/records/simple-table";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function BankFeesPage() {
-  const { fees, settings } = await getModuleData();
+  const { fees, settings, activeBuchhaltung } = await getModuleData();
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
+  const readOnly = activeBuchhaltung?.status === "abgeschlossen";
 
   return (
     <div className="space-y-6">
@@ -18,10 +20,12 @@ export default async function BankFeesPage() {
             : null
         }
       />
+      {readOnly ? <ReadOnlyNotice /> : (
       <BankFeeForm
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}
         defaultCurrency={settings?.default_currency ?? reportingCurrency}
       />
+      )}
       <SimpleTable
         title="Gespeicherte Gebühren"
         columns={["Datum", "Art", "Berichtswährung"]}

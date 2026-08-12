@@ -46,6 +46,7 @@ export function ExpenseForm({
   const [clientShareFixedCurrency, setClientShareFixedCurrency] =
     useState<CurrencyCode>(defaultCurrency);
   const [clientShareFixedRate, setClientShareFixedRate] = useState(1);
+  const [receiptName, setReceiptName] = useState("");
 
   const preview = useMemo(() => {
     const amountReporting =
@@ -107,6 +108,7 @@ export function ExpenseForm({
     setClientShareFixedAmount(0);
     setClientShareFixedCurrency(defaultCurrency);
     setClientShareFixedRate(1);
+    setReceiptName("");
   }
 
   return (
@@ -222,11 +224,18 @@ export function ExpenseForm({
                 onChange={(event) => setDeductiblePercentage(Number(event.target.value))}
               />
             </Field>
-            <Field label="Beleg vorhanden?">
-              <Select name="receipt_available" defaultValue="true">
-                <option value="true">Ja</option>
-                <option value="false">Nein</option>
-              </Select>
+            <Field label="Beleg">
+              <Input
+                name="receipt_file"
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/heic,.heic"
+                capture="environment"
+                onChange={(event) => setReceiptName(event.target.files?.[0]?.name ?? "")}
+              />
+              <input name="receipt_available" type="hidden" value={receiptName ? "true" : "false"} />
+              <p className="mt-1 text-xs text-slate-500">
+                {receiptName ? `Ausgewählt: ${receiptName}` : "Foto / Beleg hochladen"}
+              </p>
             </Field>
             <Field label="Kann an Kunden weiterberechnet werden?">
               <Select

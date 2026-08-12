@@ -3,7 +3,7 @@ import { TaxRateCard } from "@/components/dashboard/tax-rate-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { getDashboardData } from "@/lib/data";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function DashboardPage({
   searchParams
@@ -15,6 +15,7 @@ export default async function DashboardPage({
   const showAdvisorDetails = Boolean(data.settings?.steuerberater_view);
   const tripAndTravelTotal = data.kpis.tripDrivingTotal + data.kpis.tripTravelTotal;
   const operatingExpensesTotal = data.kpis.deductibleExpensesTotal + data.kpis.depreciationTotal;
+  const buchhaltung = data.activeBuchhaltung;
 
   const compactKpis = [
     {
@@ -103,6 +104,26 @@ export default async function DashboardPage({
       {searchParams?.reset === "1" ? (
         <Card className="border-emerald-200 bg-emerald-50">
           <p className="text-sm text-emerald-700">Alle Daten wurden gelöscht.</p>
+        </Card>
+      ) : null}
+
+      {buchhaltung ? (
+        <Card className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-950">{buchhaltung.name}</h2>
+              <p className="text-sm text-slate-600">
+                {buchhaltung.country} · {buchhaltung.reporting_currency}
+              </p>
+              <p className="text-sm text-slate-600">
+                {formatDate(buchhaltung.start_date)} –{" "}
+                {buchhaltung.end_date ? formatDate(buchhaltung.end_date) : "laufend"}
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-medium text-slate-700">
+              {buchhaltung.status === "abgeschlossen" ? "Abgeschlossen" : "Aktiv"}
+            </span>
+          </div>
         </Card>
       ) : null}
 

@@ -4,16 +4,33 @@ import { calculateDepreciationSummary } from "@/lib/depreciation";
 import { isIncomePaid, normalizeIncomeStatus } from "@/lib/income-status";
 import { calculateTripTotals } from "@/lib/trips";
 import { getYearEnd, getYearStart, safeArray } from "@/lib/utils";
+import {
+  applyBuchhaltungSettings,
+  getSelectedBuchhaltung
+} from "@/lib/buchhaltungen";
 
 export async function getSettings() {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data } = await supabase.from("settings").select("*").maybeSingle();
-  return data;
+  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, data);
+  return applyBuchhaltungSettings(data, activeBuchhaltung);
+}
+
+export async function getBuchhaltungContext() {
+  const { supabase, user } = await requireUser();
+  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
+  return getSelectedBuchhaltung(supabase, user, settings);
 }
 
 export async function getModuleData(year?: number) {
-  const { supabase } = await requireUser();
-  const settings = await getSettings();
+  const { supabase, user } = await requireUser();
+  const { data: rawSettings } = await supabase.from("settings").select("*").maybeSingle();
+  const { buchhaltungen, activeBuchhaltung } = await getSelectedBuchhaltung(
+    supabase,
+    user,
+    rawSettings
+  );
+  const settings = applyBuchhaltungSettings(rawSettings, activeBuchhaltung);
   const businessYear = year ?? settings?.business_year ?? new Date().getFullYear();
   const from = getYearStart(businessYear);
   const to = getYearEnd(businessYear);
@@ -22,36 +39,42 @@ export async function getModuleData(year?: number) {
     supabase
       .from("incomes")
       .select("*")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("invoice_date", from)
       .lte("invoice_date", to)
       .order("invoice_date", { ascending: false }),
     supabase
       .from("expenses")
-      .select("*")
+      .select("*, receipts(*)")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("expense_date", from)
       .lte("expense_date", to)
       .order("expense_date", { ascending: false }),
     supabase
       .from("bank_fees")
       .select("*")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("fee_date", from)
       .lte("fee_date", to)
       .order("fee_date", { ascending: false }),
     supabase
       .from("trips")
       .select("*, trip_stops(*), trip_segments(*)")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("start_at", `${from}T00:00:00`)
       .lte("start_at", `${to}T23:59:59`)
       .order("start_at", { ascending: false }),
     supabase
       .from("depreciations")
       .select("*")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("acquisition_date", from)
       .lte("acquisition_date", to)
       .order("acquisition_date", { ascending: false }),
     supabase
       .from("reimbursements")
       .select("*")
+      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
       .gte("reimbursement_date", from)
       .lte("reimbursement_date", to)
       .order("reimbursement_date", { ascending: false })
@@ -60,6 +83,8 @@ export async function getModuleData(year?: number) {
   return {
     businessYear,
     settings,
+    buchhaltungen,
+    activeBuchhaltung,
     incomes: safeArray(incomes.data).map((row) => ({
       ...row,
       status: normalizeIncomeStatus(row.status)

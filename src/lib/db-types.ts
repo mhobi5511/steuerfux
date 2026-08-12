@@ -3,6 +3,7 @@ export type TaxMode = "NETTO" | "BRUTTO";
 export type IncomeStatus = "offen" | "bezahlt";
 export type BusinessCountry = "Deutschland" | "Schweiz";
 export type ReportingCurrency = CurrencyCode;
+export type BuchhaltungStatus = "aktiv" | "abgeschlossen";
 export type ThemeMode = "hell" | "dunkel" | "system";
 export type FeeType =
   | "Bankgebühr"
@@ -25,6 +26,27 @@ export type BaseRow = {
   updated_at: string;
 };
 
+export type Buchhaltung = BaseRow & {
+  name: string;
+  country: BusinessCountry;
+  reporting_currency: ReportingCurrency;
+  start_date: string;
+  end_date: string | null;
+  status: BuchhaltungStatus;
+};
+
+export type Receipt = {
+  id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  expense_id: string;
+  storage_path: string;
+  original_filename: string;
+  mime_type: string;
+  file_size: number;
+  created_at: string;
+};
+
 export type CurrencySnapshot = {
   currency: CurrencyCode;
   exchange_rate: number;
@@ -35,6 +57,7 @@ export type CurrencySnapshot = {
 
 export type Income = BaseRow &
   CurrencySnapshot & {
+    buchhaltung_id: string;
     invoice_date: string;
     payment_date: string | null;
     customer_project: string;
@@ -52,6 +75,7 @@ export type Income = BaseRow &
 
 export type Expense = BaseRow &
   CurrencySnapshot & {
+    buchhaltung_id: string;
     expense_date: string;
     payment_date: string | null;
     category: string;
@@ -81,10 +105,12 @@ export type Expense = BaseRow &
     effective_amount_reporting: number;
     effective_deductible_amount_reporting: number;
     reimbursement_id: string | null;
+    receipts?: Receipt[];
   };
 
 export type BankFee = BaseRow &
   CurrencySnapshot & {
+    buchhaltung_id: string;
     fee_date: string;
     original_amount: number;
     fee_type: FeeType;
@@ -107,6 +133,7 @@ export type PerDiemBreakdownRow = {
 
 export type Depreciation = BaseRow &
   CurrencySnapshot & {
+    buchhaltung_id: string;
     linked_expense_id: string | null;
     description: string;
     original_amount: number;
@@ -122,6 +149,7 @@ export type Depreciation = BaseRow &
   };
 
 export type Trip = BaseRow & {
+  buchhaltung_id: string;
   title: string;
   business_reason: string;
   start_point: string;
@@ -144,6 +172,7 @@ export type Trip = BaseRow & {
 };
 
 export type TripStop = BaseRow & {
+  buchhaltung_id: string;
   trip_id: string;
   sort_order: number;
   location: string;
@@ -158,6 +187,7 @@ export type TripStop = BaseRow & {
 };
 
 export type TripSegment = BaseRow & {
+  buchhaltung_id: string;
   trip_id: string;
   sort_order: number;
   from_label: string;
@@ -178,6 +208,7 @@ export type ExchangeRate = BaseRow & {
 
 export type Reimbursement = BaseRow &
   CurrencySnapshot & {
+    buchhaltung_id: string;
     reimbursement_date: string;
     description: string;
     original_amount: number;
