@@ -17,6 +17,13 @@ export type TripPurpose =
   | "Privat"
   | "Transit";
 export type ReimbursementStatus = "offen" | "abgerechnet" | "bezahlt";
+export type InvoiceStatus =
+  | "Entwurf"
+  | "Ausgestellt"
+  | "Versendet"
+  | "Teilweise bezahlt"
+  | "Bezahlt"
+  | "Storniert";
 export type ReimbursementContext = "Reise" | "Fahrt" | "Ausgabe" | "Rechnung/Einnahme";
 
 export type BaseRow = {
@@ -47,6 +54,112 @@ export type Receipt = {
   created_at: string;
 };
 
+export type Customer = BaseRow & {
+  buchhaltung_id: string;
+  company_name: string;
+  contact_name: string | null;
+  street: string;
+  postal_code: string;
+  city: string;
+  country: string;
+  email: string;
+  phone: string | null;
+  customer_number: string | null;
+  notes: string | null;
+};
+
+export type BankAccount = BaseRow & {
+  buchhaltung_id: string;
+  label: string;
+  currency: CurrencyCode;
+  account_holder: string;
+  iban: string;
+  bic: string;
+  bank_name: string;
+  bank_address: string | null;
+  qr_storage_path: string | null;
+  is_default: boolean;
+};
+
+export type InvoiceSettings = BaseRow & {
+  buchhaltung_id: string;
+  sender_name: string | null;
+  sender_addition: string | null;
+  sender_street: string | null;
+  sender_postal_code: string | null;
+  sender_city: string | null;
+  sender_country: string | null;
+  sender_email: string | null;
+  sender_phone: string | null;
+  sender_tax_id: string | null;
+  logo_storage_path: string | null;
+  invoice_prefix: string;
+  next_invoice_number: number;
+  yearly_reset: boolean;
+  default_payment_term: string;
+  default_kleinunternehmer: boolean;
+};
+
+export type InvoiceItem = {
+  id: string;
+  invoice_id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  sort_order: number;
+  title: string;
+  description: string | null;
+  quantity: number;
+  unit: string | null;
+  unit_price_cents: number;
+  currency: CurrencyCode;
+  vat_rate: number;
+  net_amount_cents: number;
+  vat_amount_cents: number;
+  gross_amount_cents: number;
+  created_at: string;
+};
+
+export type InvoicePayment = {
+  id: string;
+  invoice_id: string;
+  income_id: string | null;
+  user_id: string;
+  buchhaltung_id: string;
+  payment_date: string;
+  amount_cents: number;
+  currency: CurrencyCode;
+  fee_cents: number;
+  note: string | null;
+  created_at: string;
+};
+
+export type Invoice = BaseRow & {
+  buchhaltung_id: string;
+  customer_id: string | null;
+  bank_account_id: string | null;
+  invoice_number: string | null;
+  status: InvoiceStatus;
+  issue_date: string;
+  payment_term: string;
+  due_date: string;
+  currency: CurrencyCode;
+  kleinunternehmer: boolean;
+  customer_snapshot: Record<string, unknown>;
+  sender_snapshot: Record<string, unknown>;
+  bank_snapshot: Record<string, unknown> | null;
+  tax_note: string | null;
+  notes: string | null;
+  net_total_cents: number;
+  vat_total_cents: number;
+  gross_total_cents: number;
+  paid_total_cents: number;
+  sent_at: string | null;
+  issued_at: string | null;
+  income_id: string | null;
+  items?: InvoiceItem[];
+  payments?: InvoicePayment[];
+};
+
 export type CurrencySnapshot = {
   currency: CurrencyCode;
   exchange_rate: number;
@@ -58,6 +171,7 @@ export type CurrencySnapshot = {
 export type Income = BaseRow &
   CurrencySnapshot & {
     buchhaltung_id: string;
+    invoice_id: string | null;
     invoice_date: string;
     payment_date: string | null;
     customer_project: string;

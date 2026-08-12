@@ -37,6 +37,10 @@ export default async function DashboardPage({
     {
       label: "Steuerlich relevanter Betrag",
       value: data.kpis.taxRelevantProfit
+    },
+    {
+      label: "Offener Rechnungsbetrag",
+      value: data.kpis.openInvoiceAmount
     }
   ];
 
@@ -85,6 +89,11 @@ export default async function DashboardPage({
       label: "Steuerlich relevanter Betrag",
       value: data.kpis.taxRelevantProfit,
       note: "Umsatz minus steuerlich relevante Kosten."
+    },
+    {
+      label: "Offene Rechnungen",
+      value: data.kpis.openInvoiceAmount,
+      note: `${data.kpis.openInvoices} offen, ${data.kpis.overdueInvoices} überfällig.`
     }
   ];
 
@@ -141,6 +150,13 @@ export default async function DashboardPage({
           taxableProfit={data.kpis.taxRelevantProfit}
           reportingCurrency={data.reportingCurrency}
         />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Offene Rechnungen" value={String(data.kpis.openInvoices)} />
+        <KpiCard label="Überfällige Rechnungen" value={String(data.kpis.overdueInvoices)} />
+        <KpiCard label="Diesen Monat gestellt" value={String(data.kpis.invoicesIssuedThisMonth)} />
+        <KpiCard label="Diesen Monat bezahlt" value={String(data.kpis.invoicesPaidThisMonth)} />
       </div>
 
       {showAdvisorDetails ? (

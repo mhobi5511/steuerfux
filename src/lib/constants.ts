@@ -4,6 +4,7 @@ export const homeAddressDefault = "Ottobrunn, München, Deutschland";
 
 export const navItems = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/rechnungen", label: "Rechnungen" },
   { href: "/einnahmen", label: "Einnahmen" },
   { href: "/ausgaben", label: "Ausgaben" },
   { href: "/bank-gebuehren", label: "Bank- & Wechselgebühren" },

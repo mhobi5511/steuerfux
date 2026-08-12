@@ -79,6 +79,12 @@ export async function getModuleData(year?: number) {
       .lte("reimbursement_date", to)
       .order("reimbursement_date", { ascending: false })
   ]);
+  const invoices = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+    .gte("issue_date", from)
+    .lte("issue_date", to);
 
   return {
     businessYear,
@@ -93,7 +99,8 @@ export async function getModuleData(year?: number) {
     fees: safeArray(fees.data),
     trips: safeArray(trips.data),
     depreciations: safeArray(depreciations.data),
-    reimbursements: safeArray(reimbursements.data)
+    reimbursements: safeArray(reimbursements.data),
+    invoices: safeArray(invoices.data)
   };
 }
 
@@ -143,6 +150,27 @@ export async function getDashboardData(year?: number) {
     (sum, row) => sum + (row.yearly_amount_reporting ?? 0),
     0
   );
+  const today = new Date().toISOString().slice(0, 10);
+  const openInvoices = data.invoices.filter((invoice) =>
+    ["Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status)
+  );
+  const overdueInvoices = openInvoices.filter(
+    (invoice) =>
+      invoice.due_date < today &&
+      (invoice.gross_total_cents ?? 0) > (invoice.paid_total_cents ?? 0)
+  );
+  const openInvoiceAmount = openInvoices.reduce(
+    (sum, invoice) =>
+      sum + Math.max((invoice.gross_total_cents ?? 0) - (invoice.paid_total_cents ?? 0), 0) / 100,
+    0
+  );
+  const currentMonth = today.slice(0, 7);
+  const invoicesIssuedThisMonth = data.invoices.filter((invoice) =>
+    String(invoice.issue_date).startsWith(currentMonth)
+  ).length;
+  const invoicesPaidThisMonth = data.invoices.filter(
+    (invoice) => invoice.status === "Bezahlt" && String(invoice.updated_at).startsWith(currentMonth)
+  ).length;
   const deductibleCostTotal =
     deductibleExpensesTotal + feeTotal + tripDrivingTotal + tripTravelTotal + depreciationTotal;
   const profitBeforeDeductions = paymentReceivedTotal - effectiveExpensesTotal - feeTotal;
@@ -202,7 +230,12 @@ export async function getDashboardData(year?: number) {
       deductibleCostTotal,
       profitBeforeDeductions,
       taxRelevantProfit,
-      unreimbursedCosts
+      unreimbursedCosts,
+      openInvoices: openInvoices.length,
+      overdueInvoices: overdueInvoices.length,
+      openInvoiceAmount,
+      invoicesIssuedThisMonth,
+      invoicesPaidThisMonth
     },
     monthly,
     rateReference: basePerDiemRates,
