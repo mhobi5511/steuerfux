@@ -94,7 +94,12 @@ export function InvoiceModule({
   const editing = invoices.find((invoice) => invoice.id === editId) ?? null;
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const defaultCurrency = activeBuchhaltung?.reporting_currency ?? "EUR";
+  const fallbackBankId = (targetCurrency: CurrencyCode) =>
+    bankAccounts.find((bank) => bank.currency === targetCurrency && bank.is_default)?.id
+    ?? bankAccounts[0]?.id
+    ?? "";
   const [currency, setCurrency] = useState<CurrencyCode>((editing?.currency ?? defaultCurrency) as CurrencyCode);
+  const [bankAccountId, setBankAccountId] = useState(editing?.bank_account_id ?? fallbackBankId((editing?.currency ?? defaultCurrency) as CurrencyCode));
   const [paymentTerm, setPaymentTerm] = useState(editing?.payment_term ?? invoiceSettings?.default_payment_term ?? "1 Monat");
   const [issueDate, setIssueDate] = useState(editing?.issue_date ?? new Date().toISOString().slice(0, 10));
   const [customDueDate, setCustomDueDate] = useState(editing?.due_date ?? "");
@@ -128,6 +133,7 @@ export function InvoiceModule({
   );
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId);
+  const selectedBankAccount = bankAccounts.find((bank) => bank.id === bankAccountId) ?? null;
   const customerFieldKey = selectedCustomerId || editing?.id || "new";
   const vatExemptionLabel = getVatExemptionLabel(activeBuchhaltung?.country ?? "Deutschland");
   const vatExemptionSettingsLabel = getVatExemptionSettingsLabel(activeBuchhaltung?.country ?? "Deutschland");
@@ -150,6 +156,9 @@ export function InvoiceModule({
       { net: 0, vat: 0, gross: 0 }
     );
   }, [currency, items, kleinunternehmer]);
+  const hasPaymentBank = Boolean(selectedBankAccount?.account_holder && selectedBankAccount.iban);
+  const usesUploadedPaymentQr = Boolean(useUploadedQr && selectedBankAccount?.qr_storage_path);
+  const usesAutomaticPaymentQr = Boolean(paymentQrEnabled && currency === "EUR" && hasPaymentBank);
 
   const visibleInvoices = invoices.filter((invoice) => {
     if (filter === "Alle") return true;
@@ -317,7 +326,11 @@ export function InvoiceModule({
                 <Select
                   name="currency"
                   value={currency}
-                  onChange={(event) => setCurrency(event.target.value as CurrencyCode)}
+                  onChange={(event) => {
+                    const nextCurrency = event.target.value as CurrencyCode;
+                    setCurrency(nextCurrency);
+                    setBankAccountId(fallbackBankId(nextCurrency));
+                  }}
                 >
                   <option value="EUR">EUR</option>
                   <option value="CHF">CHF</option>
@@ -334,7 +347,7 @@ export function InvoiceModule({
                 </Select>
               </Field>
               <Field label="Bankverbindung">
-                <Select name="bank_account_id" defaultValue={editing?.bank_account_id ?? bankAccounts.find((bank) => bank.currency === currency && bank.is_default)?.id ?? ""}>
+                <Select name="bank_account_id" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}>
                   <option value="">Keine Bankverbindung</option>
                   {bankAccounts.map((bank) => (
                     <option key={bank.id} value={bank.id}>
@@ -467,11 +480,19 @@ export function InvoiceModule({
                   {vatExemptionSentence}
                 </p>
               ) : null}
+              <div className="mt-4 border-t border-slate-200 pt-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-950">Zahlung an:</p>
+                {hasPaymentBank ? (
+                  <p className="mt-1">{selectedBankAccount?.account_holder}<br />IBAN: {selectedBankAccount?.iban}<br />{selectedBankAccount?.currency} · QR: {usesUploadedPaymentQr || usesAutomaticPaymentQr ? "aktiv" : "nicht aktiv"}</p>
+                ) : (
+                  <p className="mt-1 font-medium text-rose-700">Keine Bankverbindung hinterlegt.</p>
+                )}
+              </div>
             </div>
             {editing?.status === "Entwurf" ? (
               <form action={submitAction(issueInvoice)}>
                 <input name="id" type="hidden" value={editing.id} />
-                <Button type="submit" disabled={pending} className="w-full">
+                <Button type="submit" disabled={pending || !hasPaymentBank} className="w-full">
                   Rechnung ausstellen
                 </Button>
               </form>

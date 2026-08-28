@@ -147,6 +147,51 @@ function buildBankSnapshot(bank: BankAccount | null) {
   };
 }
 
+async function resolveInvoiceBankAccount({
+  supabase,
+  userId,
+  buchhaltungId,
+  requestedBankAccountId,
+  currency
+}: {
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"];
+  userId: string;
+  buchhaltungId: string;
+  requestedBankAccountId: string | null;
+  currency: CurrencyCode;
+}) {
+  if (requestedBankAccountId) {
+    const { data: selected } = await supabase
+      .from("bank_accounts")
+      .select("*")
+      .eq("id", requestedBankAccountId)
+      .eq("user_id", userId)
+      .eq("buchhaltung_id", buchhaltungId)
+      .maybeSingle();
+    if (selected) return selected as BankAccount;
+  }
+
+  const { data: matchingDefault } = await supabase
+    .from("bank_accounts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("buchhaltung_id", buchhaltungId)
+    .eq("currency", currency)
+    .eq("is_default", true)
+    .maybeSingle();
+  if (matchingDefault) return matchingDefault as BankAccount;
+
+  const { data: firstAccount } = await supabase
+    .from("bank_accounts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("buchhaltung_id", buchhaltungId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return firstAccount as BankAccount | null;
+}
+
 function buildQrPaymentSnapshot({
   bank,
   generatedEnabled,
@@ -332,16 +377,13 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
   }
 
   const bankAccountId = String(formData.get("bank_account_id") ?? "") || null;
-  const { data: bankAccount } = bankAccountId
-    ? await supabase
-        .from("bank_accounts")
-        .select("*")
-        .eq("id", bankAccountId)
-        .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung.id)
-        .maybeSingle()
-    : { data: null };
-  const typedBankAccount = bankAccount as BankAccount | null;
+  const typedBankAccount = await resolveInvoiceBankAccount({
+    supabase,
+    userId: user.id,
+    buchhaltungId: activeBuchhaltung.id,
+    requestedBankAccountId: bankAccountId,
+    currency
+  });
   const generatedPaymentQrEnabled = formData.get("payment_qr_enabled") === "true";
   const useUploadedQr = formData.get("use_uploaded_qr") === "true";
   const taxExemptionType = taxExempt ? getVatExemptionType(activeBuchhaltung.country) : null;
@@ -361,7 +403,7 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
     user_id: user.id,
     buchhaltung_id: activeBuchhaltung.id,
     customer_id: resolvedCustomerId,
-    bank_account_id: bankAccountId,
+    bank_account_id: typedBankAccount?.id ?? null,
     issue_date: issueDate,
     payment_term: paymentTerm,
     due_date: dueDate,
@@ -435,6 +477,51 @@ export async function issueInvoice(formData: FormData): Promise<ActionResult> {
   if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewählt." };
 
   const invoiceId = String(formData.get("id") ?? "");
+  const { data: draft } = await supabase
+    .from("invoices")
+    .select("status, currency, bank_account_id, bank_snapshot, qr_payment_snapshot")
+    .eq("id", invoiceId)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .maybeSingle();
+  if (!draft) return { error: "Rechnung wurde nicht gefunden." };
+  if (draft.status === "Entwurf") {
+    const existingBankSnapshot = (draft.bank_snapshot ?? {}) as Record<string, unknown>;
+    const hasBankSnapshot = typeof existingBankSnapshot.account_holder === "string"
+      && typeof existingBankSnapshot.iban === "string";
+    if (!hasBankSnapshot) {
+      const bankAccount = await resolveInvoiceBankAccount({
+        supabase,
+        userId: user.id,
+        buchhaltungId: activeBuchhaltung.id,
+        requestedBankAccountId: draft.bank_account_id,
+        currency: draft.currency as CurrencyCode
+      });
+      if (!bankAccount) return { error: "Keine Bankverbindung hinterlegt." };
+      const invoiceSettings = await ensureInvoiceSettings(
+        supabase,
+        user.id,
+        activeBuchhaltung.id,
+        activeBuchhaltung.country
+      );
+      await supabase
+        .from("invoices")
+        .update({
+          bank_account_id: bankAccount.id,
+          bank_snapshot: buildBankSnapshot(bankAccount),
+          qr_payment_snapshot: buildQrPaymentSnapshot({
+            bank: bankAccount,
+            generatedEnabled: invoiceSettings.default_payment_qr_enabled,
+            useUploadedQr: invoiceSettings.default_use_uploaded_qr,
+            invoiceNumber: null,
+            currency: draft.currency as CurrencyCode
+          })
+        })
+        .eq("id", invoiceId)
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung.id);
+    }
+  }
   const { data, error } = await supabase.rpc("issue_invoice", { p_invoice_id: invoiceId });
   if (error) return { error: error.message || "Rechnung konnte nicht ausgestellt werden." };
   if (data) {

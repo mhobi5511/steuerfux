@@ -91,3 +91,55 @@ export async function createInvoiceAssetSignedUrl(storagePath: string) {
   if (error) return null;
   return data.signedUrl;
 }
+
+export async function getInvoicePaymentFallback(invoice: Invoice) {
+  const { supabase, user } = await requireUser();
+  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
+  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, settings);
+  if (!activeBuchhaltung || invoice.buchhaltung_id !== activeBuchhaltung.id) {
+    return { bank: null as BankAccount | null, invoiceSettings: null as InvoiceSettings | null };
+  }
+
+  const loadBank = (id?: string | null) => id
+    ? supabase
+        .from("bank_accounts")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung.id)
+        .maybeSingle()
+    : null;
+  const selected = await loadBank(invoice.bank_account_id);
+  if (selected?.data) {
+    const { data: invoiceSettings } = await supabase.from("invoice_settings").select("*").eq("buchhaltung_id", activeBuchhaltung.id).maybeSingle();
+    return { bank: selected.data as BankAccount, invoiceSettings: invoiceSettings as InvoiceSettings | null };
+  }
+
+  const { data: matchingDefault } = await supabase
+    .from("bank_accounts")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .eq("currency", invoice.currency)
+    .eq("is_default", true)
+    .maybeSingle();
+  const { data: firstAccount } = matchingDefault
+    ? { data: null }
+    : await supabase
+        .from("bank_accounts")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+  const { data: invoiceSettings } = await supabase
+    .from("invoice_settings")
+    .select("*")
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .maybeSingle();
+  return {
+    bank: (matchingDefault ?? firstAccount) as BankAccount | null,
+    invoiceSettings: invoiceSettings as InvoiceSettings | null
+  };
+}

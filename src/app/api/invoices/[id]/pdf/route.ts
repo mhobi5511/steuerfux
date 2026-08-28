@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createInvoiceAssetSignedUrl, getInvoiceForView } from "@/lib/invoice-data";
+import { createInvoiceAssetSignedUrl, getInvoiceForView, getInvoicePaymentFallback } from "@/lib/invoice-data";
 import { formatCents } from "@/lib/invoice-utils";
 import { generatePaymentQr } from "@/lib/payment-qr";
 import { formatDate } from "@/lib/utils";
@@ -27,16 +27,26 @@ export async function GET(
 
   const customer = invoice.customer_snapshot as Record<string, unknown>;
   const sender = invoice.sender_snapshot as Record<string, unknown>;
-  const bank = (invoice.bank_snapshot ?? {}) as Record<string, unknown>;
+  const snapshotBank = (invoice.bank_snapshot ?? {}) as Record<string, unknown>;
+  const hasBankSnapshot = Boolean(value(snapshotBank, "account_holder") && value(snapshotBank, "iban"));
+  const paymentFallback = hasBankSnapshot ? null : await getInvoicePaymentFallback(invoice);
+  // Compatibility fallback for older invoices that predate payment snapshots.
+  const bank = (hasBankSnapshot ? snapshotBank : paymentFallback?.bank ?? {}) as Record<string, unknown>;
   const qrSnapshot = (invoice.qr_payment_snapshot ?? {}) as Record<string, unknown>;
+  const fallbackQrMode = paymentFallback?.invoiceSettings?.default_use_uploaded_qr && value(bank, "qr_storage_path")
+    ? "uploaded"
+    : paymentFallback?.invoiceSettings?.default_payment_qr_enabled && invoice.currency === "EUR"
+      ? "generated"
+      : "none";
+  const qrMode = typeof qrSnapshot.mode === "string" ? qrSnapshot.mode : fallbackQrMode;
   const items = (invoice.items ?? []).sort((a, b) => a.sort_order - b.sort_order);
   const uploadedQrPath = typeof qrSnapshot.uploaded_qr_storage_path === "string"
     ? qrSnapshot.uploaded_qr_storage_path
     : value(bank, "qr_storage_path");
-  const uploadedQrUrl = qrSnapshot.mode === "uploaded" && uploadedQrPath
+  const uploadedQrUrl = qrMode === "uploaded" && uploadedQrPath
     ? await createInvoiceAssetSignedUrl(uploadedQrPath)
     : null;
-  const generatedQr = qrSnapshot.mode === "generated"
+  const generatedQr = qrMode === "generated"
     ? await generatePaymentQr({
         accountHolder: value(bank, "account_holder"),
         iban: value(bank, "iban"),
