@@ -554,6 +554,9 @@ export function InvoiceModule({
                       <Link href={`/api/invoices/${invoice.id}/pdf`} target="_blank">
                         <Button type="button" variant="ghost">PDF ansehen</Button>
                       </Link>
+                      <Link href={`/api/invoices/${invoice.id}/pdf?download=1`}>
+                        <Button type="button" variant="ghost">PDF herunterladen</Button>
+                      </Link>
                       {invoice.status === "Entwurf" && !readOnly ? (
                         <Link href={`/rechnungen?edit=${invoice.id}`}>
                           <Button type="button" variant="ghost">Bearbeiten</Button>

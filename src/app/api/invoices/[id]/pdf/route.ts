@@ -3,6 +3,9 @@ import { createInvoiceAssetSignedUrl, getInvoiceForView, getInvoicePaymentFallba
 import { formatCents } from "@/lib/invoice-utils";
 import { generatePaymentQr } from "@/lib/payment-qr";
 import { formatDate } from "@/lib/utils";
+import { renderInvoicePdf } from "@/components/invoices/invoice-pdf-document";
+
+export const runtime = "nodejs";
 
 function value(snapshot: Record<string, unknown> | null | undefined, key: string) {
   return typeof snapshot?.[key] === "string" ? String(snapshot[key]) : "";
@@ -17,7 +20,7 @@ function escapeHtml(input: string) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   const invoice = await getInvoiceForView(params.id);
@@ -62,6 +65,24 @@ export async function GET(
     ? "Zahlungs-QR-Code"
     : generatedQr?.label ?? null;
   const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
+  const shouldDownload = new URL(request.url).searchParams.get("download") === "1";
+
+  if (shouldDownload) {
+    const pdfBuffer = await renderInvoicePdf({
+      invoice,
+      customer,
+      sender,
+      bank,
+      qrImage: paymentQrImage,
+      qrLabel: paymentQrLabel
+    });
+    return new NextResponse(new Uint8Array(pdfBuffer), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="rechnung-${invoice.invoice_number ?? invoice.id}.pdf"`
+      }
+    });
+  }
 
   const html = `<!doctype html>
 <html lang="de">
