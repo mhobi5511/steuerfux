@@ -19,7 +19,7 @@ export default async function DashboardPage({
 
   const compactKpis = [
     {
-      label: "Umsatz",
+      label: "Erhaltene Zahlungen",
       value: data.kpis.paymentReceivedTotal
     },
     {

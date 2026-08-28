@@ -7,9 +7,7 @@ import {
   duplicateInvoice,
   issueInvoice,
   recordInvoicePayment,
-  saveBankAccount,
   saveInvoiceDraft,
-  saveInvoiceSettings,
   sendInvoiceEmail
 } from "@/app/actions/invoices";
 import { FormFeedback } from "@/components/forms/form-feedback";
@@ -76,6 +74,7 @@ export function InvoiceModule({
   invoiceSettings,
   bankAccounts,
   editId,
+  create = false,
   filter = "Alle"
 }: {
   activeBuchhaltung: Buchhaltung | null;
@@ -84,6 +83,7 @@ export function InvoiceModule({
   invoiceSettings: InvoiceSettings | null;
   bankAccounts: BankAccount[];
   editId?: string;
+  create?: boolean;
   filter?: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -128,6 +128,7 @@ export function InvoiceModule({
   );
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId);
+  const customerFieldKey = selectedCustomerId || editing?.id || "new";
   const vatExemptionLabel = getVatExemptionLabel(activeBuchhaltung?.country ?? "Deutschland");
   const vatExemptionSettingsLabel = getVatExemptionSettingsLabel(activeBuchhaltung?.country ?? "Deutschland");
   const vatExemptionSentence = getVatExemptionSentence(activeBuchhaltung?.country ?? "Deutschland");
@@ -157,11 +158,16 @@ export function InvoiceModule({
     return invoice.status === filter;
   });
 
-  function submitAction(action: (formData: FormData) => Promise<{ success?: string; error?: string }>) {
+  function submitAction(action: (formData: FormData) => Promise<{ success?: string; error?: string; customerId?: string }>) {
     return (formData: FormData) =>
       startTransition(async () => {
         setMessage({ success: null, error: null });
         const result = await action(formData);
+        if (result.customerId) {
+          setSelectedCustomerId(result.customerId);
+          setMessage({ success: "Vorhandenen Empfänger verwenden und Entwurf erneut speichern.", error: null });
+          return;
+        }
         setMessage({ success: result.success ?? null, error: result.error ?? null });
       });
   }
@@ -170,7 +176,7 @@ export function InvoiceModule({
     <div className="space-y-6">
       <FormFeedback success={message.success} error={message.error} />
 
-      {!readOnly ? (
+      {!readOnly && (editing || create) ? (
         <div className="grid gap-6 xl:grid-cols-[1.45fr_0.9fr]">
           <Card className="space-y-5">
             <div>
@@ -216,6 +222,7 @@ export function InvoiceModule({
               </Field>
               <Field label="Firma / Name">
                 <Input
+                  key={`${customerFieldKey}-company`}
                   name="customer_company_name"
                   required
                   defaultValue={snapshotValue(editing?.customer_snapshot, "company_name") || selectedCustomer?.company_name || ""}
@@ -223,13 +230,15 @@ export function InvoiceModule({
               </Field>
               <Field label="Kontakt optional">
                 <Input
+                  key={`${customerFieldKey}-contact`}
                   name="customer_contact_name"
                   defaultValue={snapshotValue(editing?.customer_snapshot, "contact_name") || selectedCustomer?.contact_name || ""}
                 />
               </Field>
               <Field label="Strasse">
-                <Input
-                  name="customer_street"
+                  <Input
+                    key={`${customerFieldKey}-street`}
+                    name="customer_street"
                   required
                   defaultValue={snapshotValue(editing?.customer_snapshot, "street") || selectedCustomer?.street || ""}
                 />
@@ -237,6 +246,7 @@ export function InvoiceModule({
               <div className="grid gap-4 sm:grid-cols-[0.7fr_1.3fr]">
                 <Field label="PLZ">
                   <Input
+                    key={`${customerFieldKey}-postal`}
                     name="customer_postal_code"
                     required
                     defaultValue={snapshotValue(editing?.customer_snapshot, "postal_code") || selectedCustomer?.postal_code || ""}
@@ -244,6 +254,7 @@ export function InvoiceModule({
                 </Field>
                 <Field label="Ort">
                   <Input
+                    key={`${customerFieldKey}-city`}
                     name="customer_city"
                     required
                     defaultValue={snapshotValue(editing?.customer_snapshot, "city") || selectedCustomer?.city || ""}
@@ -252,6 +263,7 @@ export function InvoiceModule({
               </div>
               <Field label="Land">
                 <Input
+                  key={`${customerFieldKey}-country`}
                   name="customer_country"
                   required
                   defaultValue={snapshotValue(editing?.customer_snapshot, "country") || selectedCustomer?.country || activeBuchhaltung?.country || ""}
@@ -259,6 +271,7 @@ export function InvoiceModule({
               </Field>
               <Field label="E-Mail">
                 <Input
+                  key={`${customerFieldKey}-email`}
                   name="customer_email"
                   type="email"
                   required
@@ -330,7 +343,7 @@ export function InvoiceModule({
                   ))}
                 </Select>
               </Field>
-              <Field label="Automatischen Zahlungs-QR-Code anzeigen">
+              <Field label="EPC-QR-Code für EUR-Rechnung anzeigen">
                 <Select
                   name="payment_qr_enabled"
                   value={paymentQrEnabled ? "true" : "false"}
@@ -465,16 +478,19 @@ export function InvoiceModule({
             ) : null}
           </Card>
         </div>
-      ) : (
+      ) : readOnly ? (
         <Card className="border-amber-200 bg-amber-50">
           <p className="text-sm font-medium text-amber-800">
             Diese Buchhaltung ist abgeschlossen und schreibgeschützt.
           </p>
         </Card>
-      )}
+      ) : null}
 
       <Card className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-950">Rechnungsübersicht</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-950">Rechnungsübersicht</h2>
+          {!readOnly ? <Link href="/rechnungen?neu=1"><Button type="button">Neue Rechnung</Button></Link> : null}
+        </div>
         <div className="flex flex-wrap gap-2">
           {["Alle", "Entwurf", "Offen", "Überfällig", "Bezahlt", "Storniert"].map((item) => (
             <Link
@@ -522,35 +538,44 @@ export function InvoiceModule({
                           <Button type="button" variant="ghost">Bearbeiten</Button>
                         </Link>
                       ) : null}
+                      {invoice.status === "Entwurf" && !readOnly ? (
+                        <form action={submitAction(issueInvoice)}>
+                          <input name="id" type="hidden" value={invoice.id} />
+                          <Button type="submit" variant="ghost">Ausstellen</Button>
+                        </form>
+                      ) : null}
                       {!readOnly ? (
                         <form action={submitAction(duplicateInvoice)}>
                           <input name="id" type="hidden" value={invoice.id} />
                           <Button type="submit" variant="ghost">Duplizieren</Button>
                         </form>
                       ) : null}
-                      {!readOnly && !["Entwurf", "Bezahlt", "Storniert"].includes(invoice.status) ? (
+                      {!readOnly && ["Versendet", "Teilweise bezahlt"].includes(invoice.status) ? (
                         <details className="min-w-[240px]">
-                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Zahlung erfassen</summary>
+                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{invoice.status === "Versendet" ? "Als bezahlt markieren" : "Zahlung erfassen"}</summary>
                           <form action={submitAction(recordInvoicePayment)} className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
                             <input name="invoice_id" type="hidden" value={invoice.id} />
-                            <Input name="payment_date" type="date" required />
+                            <Input type="text" readOnly value={`Rechnungsbetrag: ${formatCents(invoice.gross_total_cents, invoice.currency)}`} />
+                            <Input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
                             <Input name="amount" type="number" step="0.01" defaultValue={(invoice.gross_total_cents - invoice.paid_total_cents) / 100} />
                             <Select name="currency" defaultValue={invoice.currency}><option value="EUR">EUR</option><option value="CHF">CHF</option></Select>
                             <Input name="exchange_rate" type="number" step="0.0001" defaultValue="1" />
-                            <Input name="fee" type="number" step="0.01" placeholder="Gebühr optional" />
+                            <Input name="fee" type="number" step="0.01" placeholder="Gebühr / Zahlungsdifferenz optional" />
+                            <Select name="settle_difference" defaultValue="false"><option value="false">Als Teilzahlung erfassen</option><option value="true">Restbetrag als Gebühr ausgleichen</option></Select>
+                            <Textarea name="note" placeholder="Notiz optional" />
                             <Button type="submit">Speichern</Button>
                           </form>
                         </details>
                       ) : null}
-                      {!readOnly && invoice.status !== "Storniert" ? (
+                      {!readOnly && ["Entwurf", "Ausgestellt", "Versendet"].includes(invoice.status) ? (
                         <form action={submitAction(cancelInvoice)}>
                           <input name="id" type="hidden" value={invoice.id} />
                           <Button type="submit" variant="danger">Stornieren</Button>
                         </form>
                       ) : null}
-                      {!readOnly && invoice.invoice_number ? (
+                      {!readOnly && invoice.invoice_number && ["Ausgestellt", "Versendet"].includes(invoice.status) ? (
                         <details className="min-w-[260px]">
-                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Versenden</summary>
+                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{invoice.status === "Versendet" ? "Erneut senden" : "Versenden"}</summary>
                           <form action={submitAction(sendInvoiceEmail)} className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
                             <input name="invoice_id" type="hidden" value={invoice.id} />
                             <Input name="to" type="email" defaultValue={snapshotValue(invoice.customer_snapshot, "email")} />
@@ -558,6 +583,14 @@ export function InvoiceModule({
                             <Textarea name="message" defaultValue={`Guten Tag,\n\nanbei erhalten Sie die Rechnung ${invoice.invoice_number}.\n\nFreundliche Grüße`} />
                             <Button type="submit">E-Mail senden</Button>
                           </form>
+                        </details>
+                      ) : null}
+                      {invoice.status === "Bezahlt" ? (
+                        <details className="min-w-[220px]">
+                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Zahlungen ansehen</summary>
+                          <div className="mt-2 space-y-1 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                            {(invoice.payments ?? []).map((payment) => <p key={payment.id}>{formatDate(payment.payment_date)} · {formatCents(payment.amount_cents, payment.currency)}</p>)}
+                          </div>
                         </details>
                       ) : null}
                     </div>
@@ -572,56 +605,6 @@ export function InvoiceModule({
         </div>
       </Card>
 
-      {!readOnly ? (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Card className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-950">Rechnungseinstellungen</h2>
-            <form action={submitAction(saveInvoiceSettings)} className="grid gap-4 lg:grid-cols-2">
-              <Field label="Name / Firmenname"><Input name="sender_name" defaultValue={invoiceSettings?.sender_name ?? ""} /></Field>
-              <Field label="Zusatz optional"><Input name="sender_addition" defaultValue={invoiceSettings?.sender_addition ?? ""} /></Field>
-              <Field label="Strasse"><Input name="sender_street" defaultValue={invoiceSettings?.sender_street ?? ""} /></Field>
-              <Field label="PLZ"><Input name="sender_postal_code" defaultValue={invoiceSettings?.sender_postal_code ?? ""} /></Field>
-              <Field label="Ort"><Input name="sender_city" defaultValue={invoiceSettings?.sender_city ?? ""} /></Field>
-              <Field label="Land"><Input name="sender_country" defaultValue={invoiceSettings?.sender_country ?? activeBuchhaltung?.country ?? ""} /></Field>
-              <Field label="E-Mail"><Input name="sender_email" type="email" defaultValue={invoiceSettings?.sender_email ?? ""} /></Field>
-              <Field label="Telefon optional"><Input name="sender_phone" defaultValue={invoiceSettings?.sender_phone ?? ""} /></Field>
-              <Field label="Steuernummer / UID optional"><Input name="sender_tax_id" defaultValue={invoiceSettings?.sender_tax_id ?? ""} /></Field>
-              <Field label="Prefix"><Input name="invoice_prefix" defaultValue={invoiceSettings?.invoice_prefix ?? "RG"} /></Field>
-              <Field label="Nächste Nummer"><Input name="next_invoice_number" type="number" defaultValue={invoiceSettings?.next_invoice_number ?? 1} /></Field>
-              <Field label="Jährlicher Reset"><Select name="yearly_reset" defaultValue={invoiceSettings?.yearly_reset === false ? "false" : "true"}><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
-              <Field label="Standard-Zahlungsziel"><Select name="default_payment_term" defaultValue={invoiceSettings?.default_payment_term ?? "1 Monat"}>{["sofort", "7 Tage", "14 Tage", "30 Tage", "1 Monat"].map((term) => <option key={term} value={term}>{term}</option>)}</Select></Field>
-              <Field label={vatExemptionSettingsLabel}><Select name="default_kleinunternehmer" defaultValue={invoiceSettings?.default_kleinunternehmer ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-              <Field label="Automatischen Zahlungs-QR-Code anzeigen"><Select name="default_payment_qr_enabled" defaultValue={invoiceSettings?.default_payment_qr_enabled ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-              <Field label="Hochgeladenen QR-Code verwenden"><Select name="default_use_uploaded_qr" defaultValue={invoiceSettings?.default_use_uploaded_qr ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-              <div className="lg:col-span-2 flex justify-end"><Button type="submit">Einstellungen speichern</Button></div>
-            </form>
-          </Card>
-
-          <Card className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-950">Bankverbindung</h2>
-            <form action={submitAction(saveBankAccount)} className="grid gap-4 lg:grid-cols-2" encType="multipart/form-data">
-              <Field label="Bezeichnung"><Input name="label" placeholder="EUR Konto" /></Field>
-              <Field label="Währung"><Select name="currency" defaultValue={defaultCurrency}><option value="EUR">EUR</option><option value="CHF">CHF</option></Select></Field>
-              <Field label="Kontoinhaber"><Input name="account_holder" /></Field>
-              <Field label="IBAN"><Input name="iban" /></Field>
-              <Field label="BIC / SWIFT"><Input name="bic" /></Field>
-              <Field label="Bankname"><Input name="bank_name" /></Field>
-              <Field label="Bankadresse optional"><Input name="bank_address" /></Field>
-              <Field label="Standardkonto"><Select name="is_default" defaultValue="true"><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
-              <Field label="QR-Code hochladen optional"><Input name="qr_code" type="file" accept="image/*" /></Field>
-              <div className="lg:col-span-2 flex justify-end"><Button type="submit">Bankverbindung speichern</Button></div>
-            </form>
-            <div className="space-y-2 text-sm text-slate-700">
-              {bankAccounts.map((bank) => (
-                <div key={bank.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="font-medium text-slate-950">{bank.label} · {bank.currency}</p>
-                  <p>{bank.account_holder} · {bank.iban}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      ) : null}
     </div>
   );
 }

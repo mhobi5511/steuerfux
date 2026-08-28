@@ -1,10 +1,13 @@
 import { SettingsForm } from "@/components/forms/settings-form";
+import { InvoiceSettingsPanel } from "@/components/invoices/invoice-settings-panel";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { getSettings } from "@/lib/data";
+import { getInvoiceModuleData } from "@/lib/invoice-data";
 
 export default async function SettingsPage() {
   const settings = await getSettings();
+  const invoiceData = await getInvoiceModuleData();
 
   return (
     <div className="space-y-6">
@@ -17,6 +20,12 @@ export default async function SettingsPage() {
         }
       />
       <SettingsForm settings={settings} />
+      <InvoiceSettingsPanel
+        activeBuchhaltung={invoiceData.activeBuchhaltung}
+        invoiceSettings={invoiceData.invoiceSettings}
+        bankAccounts={invoiceData.bankAccounts}
+        customers={invoiceData.customers}
+      />
       {settings?.steuerberater_view ? (
       <Card className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-950">Hinweise zur rechtlichen Einordnung</h2>

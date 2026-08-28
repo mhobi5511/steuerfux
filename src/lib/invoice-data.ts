@@ -51,7 +51,11 @@ export async function getInvoiceModuleData() {
     settings,
     activeBuchhaltung,
     customers: (customers.data ?? []) as Customer[],
-    invoices: (invoices.data ?? []) as Invoice[],
+    invoices: (invoices.data ?? []).map((invoice) => ({
+      ...invoice,
+      items: invoice.invoice_items ?? [],
+      payments: invoice.invoice_payments ?? []
+    })) as Invoice[],
     invoiceSettings: invoiceSettings.data as InvoiceSettings | null,
     bankAccounts: (bankAccounts.data ?? []) as BankAccount[]
   };
@@ -71,7 +75,12 @@ export async function getInvoiceForView(id: string) {
     .eq("buchhaltung_id", activeBuchhaltung.id)
     .maybeSingle();
 
-  return data as Invoice | null;
+  if (!data) return null;
+  return {
+    ...data,
+    items: data.invoice_items ?? [],
+    payments: data.invoice_payments ?? []
+  } as Invoice;
 }
 
 export async function createInvoiceAssetSignedUrl(storagePath: string) {

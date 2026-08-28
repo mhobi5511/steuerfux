@@ -41,7 +41,6 @@ export async function GET(
         accountHolder: value(bank, "account_holder"),
         iban: value(bank, "iban"),
         bic: value(bank, "bic"),
-        bankName: value(bank, "bank_name"),
         amountCents: invoice.gross_total_cents,
         currency: invoice.currency,
         invoiceNumber: invoice.invoice_number,
