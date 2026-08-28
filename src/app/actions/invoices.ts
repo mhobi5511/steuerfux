@@ -11,6 +11,10 @@ import {
   toCents,
   type InvoiceItemInput
 } from "@/lib/invoice-utils";
+import {
+  getVatExemptionSentence,
+  getVatExemptionType
+} from "@/lib/invoice-tax";
 import { toNumber } from "@/lib/utils";
 import type {
   BankAccount,
@@ -75,7 +79,9 @@ async function ensureInvoiceSettings(
       next_invoice_number: 1,
       yearly_reset: true,
       default_payment_term: "1 Monat",
-      default_kleinunternehmer: false
+      default_kleinunternehmer: false,
+      default_payment_qr_enabled: false,
+      default_use_uploaded_qr: false
     })
     .select("*")
     .single();
@@ -123,6 +129,42 @@ function buildBankSnapshot(bank: BankAccount | null) {
   };
 }
 
+function buildQrPaymentSnapshot({
+  bank,
+  generatedEnabled,
+  useUploadedQr,
+  invoiceNumber
+}: {
+  bank: BankAccount | null;
+  generatedEnabled: boolean;
+  useUploadedQr: boolean;
+  invoiceNumber?: string | null;
+}) {
+  const uploadedQrStoragePath = bank?.qr_storage_path ?? null;
+  const mode = useUploadedQr && uploadedQrStoragePath
+    ? "uploaded"
+    : generatedEnabled
+      ? "generated"
+      : "none";
+
+  return {
+    mode,
+    generated_enabled: generatedEnabled,
+    use_uploaded_qr: useUploadedQr,
+    uploaded_qr_storage_path: uploadedQrStoragePath,
+    payment_purpose: invoiceNumber ? `Rechnung ${invoiceNumber}` : null
+  };
+}
+
+function safeUploadName(name: string) {
+  return name
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80) || "qr-code";
+}
+
 export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult> {
   const { supabase, user, activeBuchhaltung, writeError } = await getInvoiceContext(true);
   if (writeError) return { error: writeError };
@@ -133,7 +175,7 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
   const issueDate = String(formData.get("issue_date") ?? new Date().toISOString().slice(0, 10));
   const paymentTerm = String(formData.get("payment_term") ?? "1 Monat");
   const dueDate = calculateDueDate(issueDate, paymentTerm, String(formData.get("custom_due_date") ?? ""));
-  const kleinunternehmer = formData.get("kleinunternehmer") === "true";
+  const taxExempt = formData.get("kleinunternehmer") === "true";
   const customerSnapshot = buildCustomerSnapshot(formData);
 
   if (!customerSnapshot.company_name || !customerSnapshot.street || !customerSnapshot.postal_code || !customerSnapshot.city || !customerSnapshot.country || !customerSnapshot.email) {
@@ -152,7 +194,7 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
 
   let items: InvoiceItemInput[];
   try {
-    items = parseItems(formData.get("items_json"), currency, kleinunternehmer);
+    items = parseItems(formData.get("items_json"), currency, taxExempt);
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Positionen sind ungültig." };
   }
@@ -196,6 +238,11 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
         .eq("buchhaltung_id", activeBuchhaltung.id)
         .maybeSingle()
     : { data: null };
+  const typedBankAccount = bankAccount as BankAccount | null;
+  const generatedPaymentQrEnabled = formData.get("payment_qr_enabled") === "true";
+  const useUploadedQr = formData.get("use_uploaded_qr") === "true";
+  const taxExemptionType = taxExempt ? getVatExemptionType(activeBuchhaltung.country) : null;
+  const taxNote = taxExempt ? getVatExemptionSentence(activeBuchhaltung.country) : null;
 
   const calculatedItems = items.map((item) => ({ ...item, ...calculateInvoiceItem(item) }));
   const totals = calculatedItems.reduce(
@@ -216,13 +263,18 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
     payment_term: paymentTerm,
     due_date: dueDate,
     currency,
-    kleinunternehmer,
+    kleinunternehmer: taxExempt,
     customer_snapshot: customerSnapshot,
     sender_snapshot: buildSenderSnapshot(invoiceSettings),
-    bank_snapshot: buildBankSnapshot(bankAccount as BankAccount | null),
-    tax_note: kleinunternehmer
-      ? "Nach der Kleinunternehmerregelung laut §19 UStG entfällt die Verrechnung der Umsatzsteuer."
-      : null,
+    bank_snapshot: buildBankSnapshot(typedBankAccount),
+    qr_payment_snapshot: buildQrPaymentSnapshot({
+      bank: typedBankAccount,
+      generatedEnabled: generatedPaymentQrEnabled,
+      useUploadedQr,
+      invoiceNumber: null
+    }),
+    vat_exemption_type: taxExemptionType,
+    tax_note: taxNote,
     notes: String(formData.get("notes") ?? "").trim() || null,
     net_total_cents: totals.net,
     vat_total_cents: totals.vat,
@@ -274,13 +326,34 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
 }
 
 export async function issueInvoice(formData: FormData): Promise<ActionResult> {
-  const { supabase, activeBuchhaltung, writeError } = await getInvoiceContext(true);
+  const { supabase, user, activeBuchhaltung, writeError } = await getInvoiceContext(true);
   if (writeError) return { error: writeError };
   if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewählt." };
 
   const invoiceId = String(formData.get("id") ?? "");
   const { data, error } = await supabase.rpc("issue_invoice", { p_invoice_id: invoiceId });
   if (error) return { error: error.message || "Rechnung konnte nicht ausgestellt werden." };
+  if (data) {
+    const { data: invoice } = await supabase
+      .from("invoices")
+      .select("qr_payment_snapshot")
+      .eq("id", invoiceId)
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeBuchhaltung.id)
+      .maybeSingle();
+    const qrPaymentSnapshot = (invoice?.qr_payment_snapshot ?? {}) as Record<string, unknown>;
+    await supabase
+      .from("invoices")
+      .update({
+        qr_payment_snapshot: {
+          ...qrPaymentSnapshot,
+          payment_purpose: `Rechnung ${data}`
+        }
+      })
+      .eq("id", invoiceId)
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeBuchhaltung.id);
+  }
 
   revalidatePath("/rechnungen");
   return { success: `Rechnung ${data} wurde ausgestellt.`, invoiceId };
@@ -333,6 +406,11 @@ export async function duplicateInvoice(formData: FormData): Promise<ActionResult
       customer_snapshot: source.customer_snapshot,
       sender_snapshot: source.sender_snapshot,
       bank_snapshot: source.bank_snapshot,
+      qr_payment_snapshot: {
+        ...(source.qr_payment_snapshot ?? {}),
+        payment_purpose: null
+      },
+      vat_exemption_type: source.vat_exemption_type,
       tax_note: source.tax_note,
       notes: source.notes,
       net_total_cents: source.net_total_cents,
@@ -511,7 +589,9 @@ export async function saveInvoiceSettings(formData: FormData): Promise<ActionRes
     next_invoice_number: Math.max(1, Math.round(toNumber(formData.get("next_invoice_number"), 1))),
     yearly_reset: formData.get("yearly_reset") === "true",
     default_payment_term: String(formData.get("default_payment_term") ?? "1 Monat"),
-    default_kleinunternehmer: formData.get("default_kleinunternehmer") === "true"
+    default_kleinunternehmer: formData.get("default_kleinunternehmer") === "true",
+    default_payment_qr_enabled: formData.get("default_payment_qr_enabled") === "true",
+    default_use_uploaded_qr: formData.get("default_use_uploaded_qr") === "true"
   };
 
   const { error } = await supabase
@@ -528,6 +608,24 @@ export async function saveBankAccount(formData: FormData): Promise<ActionResult>
   if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewählt." };
 
   const id = String(formData.get("id") ?? "");
+  let qrStoragePath: string | null = null;
+  const qrCode = formData.get("qr_code");
+  if (qrCode instanceof File && qrCode.size > 0) {
+    if (!qrCode.type.startsWith("image/")) {
+      return { error: "Der hochgeladene QR-Code muss eine Bilddatei sein." };
+    }
+    const storagePath = `${user.id}/${activeBuchhaltung.id}/qr/${crypto.randomUUID()}-${safeUploadName(qrCode.name)}`;
+    const { error: uploadError } = await supabase.storage
+      .from("invoice-assets")
+      .upload(storagePath, qrCode, {
+        cacheControl: "3600",
+        contentType: qrCode.type,
+        upsert: false
+      });
+    if (uploadError) return { error: "QR-Code konnte nicht hochgeladen werden." };
+    qrStoragePath = storagePath;
+  }
+
   const payload = {
     user_id: user.id,
     buchhaltung_id: activeBuchhaltung.id,
@@ -538,6 +636,7 @@ export async function saveBankAccount(formData: FormData): Promise<ActionResult>
     bic: String(formData.get("bic") ?? "").trim(),
     bank_name: String(formData.get("bank_name") ?? "").trim(),
     bank_address: String(formData.get("bank_address") ?? "").trim() || null,
+    ...(qrStoragePath ? { qr_storage_path: qrStoragePath } : {}),
     is_default: formData.get("is_default") === "true"
   };
 

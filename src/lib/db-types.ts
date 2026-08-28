@@ -98,6 +98,8 @@ export type InvoiceSettings = BaseRow & {
   yearly_reset: boolean;
   default_payment_term: string;
   default_kleinunternehmer: boolean;
+  default_payment_qr_enabled: boolean;
+  default_use_uploaded_qr: boolean;
 };
 
 export type InvoiceItem = {
@@ -147,6 +149,8 @@ export type Invoice = BaseRow & {
   customer_snapshot: Record<string, unknown>;
   sender_snapshot: Record<string, unknown>;
   bank_snapshot: Record<string, unknown> | null;
+  qr_payment_snapshot: Record<string, unknown>;
+  vat_exemption_type: "de-19-ustg" | "ch-art-10-mwstg" | null;
   tax_note: string | null;
   notes: string | null;
   net_total_cents: number;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getInvoiceForView } from "@/lib/invoice-data";
+import { createInvoiceAssetSignedUrl, getInvoiceForView } from "@/lib/invoice-data";
 import { formatCents } from "@/lib/invoice-utils";
+import { generatePaymentQr } from "@/lib/payment-qr";
 import { formatDate } from "@/lib/utils";
 
 function value(snapshot: Record<string, unknown> | null | undefined, key: string) {
@@ -27,7 +28,31 @@ export async function GET(
   const customer = invoice.customer_snapshot as Record<string, unknown>;
   const sender = invoice.sender_snapshot as Record<string, unknown>;
   const bank = (invoice.bank_snapshot ?? {}) as Record<string, unknown>;
+  const qrSnapshot = (invoice.qr_payment_snapshot ?? {}) as Record<string, unknown>;
   const items = (invoice.items ?? []).sort((a, b) => a.sort_order - b.sort_order);
+  const uploadedQrPath = typeof qrSnapshot.uploaded_qr_storage_path === "string"
+    ? qrSnapshot.uploaded_qr_storage_path
+    : value(bank, "qr_storage_path");
+  const uploadedQrUrl = qrSnapshot.mode === "uploaded" && uploadedQrPath
+    ? await createInvoiceAssetSignedUrl(uploadedQrPath)
+    : null;
+  const generatedQr = qrSnapshot.mode === "generated"
+    ? await generatePaymentQr({
+        accountHolder: value(bank, "account_holder"),
+        iban: value(bank, "iban"),
+        bic: value(bank, "bic"),
+        bankName: value(bank, "bank_name"),
+        amountCents: invoice.gross_total_cents,
+        currency: invoice.currency,
+        invoiceNumber: invoice.invoice_number,
+        purpose: typeof qrSnapshot.payment_purpose === "string" ? qrSnapshot.payment_purpose : null
+      })
+    : null;
+  const paymentQrImage = uploadedQrUrl ?? generatedQr?.dataUrl ?? null;
+  const paymentQrLabel = uploadedQrUrl
+    ? "Zahlungs-QR-Code"
+    : generatedQr?.label ?? null;
+  const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
 
   const html = `<!doctype html>
 <html lang="de">
@@ -53,8 +78,9 @@ export async function GET(
     .meta { min-width: 230px; border-left: 3px solid #0f172a; padding-left: 16px; }
     .meta div { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
     .addresses { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 46px; }
+    .address-card { display: flex; flex-direction: column; }
     .label { margin-bottom: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #64748b; }
-    .box { border: 1px solid #dbe3ef; border-radius: 16px; padding: 16px; min-height: 150px; }
+    .box { flex: 1; border: 1px solid #dbe3ef; border-radius: 16px; padding: 16px; min-height: 150px; }
     .due { margin: 34px 0; border-radius: 18px; background: #0f172a; color: #fff; padding: 20px 24px; }
     .due strong { display: block; margin-top: 4px; font-size: 25px; }
     table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
@@ -67,7 +93,10 @@ export async function GET(
     .totals { width: min(390px, 100%); margin-left: auto; margin-top: 24px; }
     .totals div { display: flex; justify-content: space-between; gap: 20px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
     .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 0; }
-    .payment { margin-top: 34px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .payment { margin-top: 34px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+    .qr { margin-top: 18px; }
+    .qr img { display: block; width: 132px; height: 132px; object-fit: contain; image-rendering: crisp-edges; }
+    .qr-label { margin: 8px 0 0; font-size: 10px; color: #64748b; }
     .notice { margin-top: -18px; margin-bottom: 24px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; border-radius: 14px; padding: 12px 14px; }
     .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 10px; }
     @media print { .page { padding: 0; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
@@ -78,7 +107,6 @@ export async function GET(
     <section class="top">
       <div>
         <h1>RECHNUNG</h1>
-        <p class="muted">Professionelle Rechnung aus der Buchhaltungs-App</p>
       </div>
       <aside class="meta">
         <div><span class="muted">Rechnungsnummer</span><strong>${escapeHtml(invoice.invoice_number ?? "Entwurf")}</strong></div>
@@ -88,7 +116,7 @@ export async function GET(
     </section>
 
     <section class="addresses">
-      <div>
+      <div class="address-card">
         <p class="label">Rechnung für</p>
         <div class="box">
           <strong>${escapeHtml(value(customer, "company_name"))}</strong><br />
@@ -99,7 +127,7 @@ export async function GET(
           ${escapeHtml(value(customer, "email"))}
         </div>
       </div>
-      <div>
+      <div class="address-card">
         <p class="label">Ausgestellt von</p>
         <div class="box">
           <strong>${escapeHtml(value(sender, "name"))}</strong><br />
@@ -137,7 +165,7 @@ export async function GET(
               <td><div class="item-title">${escapeHtml(item.title)}</div>${item.description ? `<div class="muted">${escapeHtml(item.description)}</div>` : ""}</td>
               <td class="num">${Number(item.quantity).toLocaleString("de-DE")} ${escapeHtml(item.unit ?? "")}</td>
               <td class="num">${formatCents(item.unit_price_cents, invoice.currency)}</td>
-              <td class="num">${Number(item.vat_rate).toLocaleString("de-DE")} %<br /><span class="muted">${formatCents(item.vat_amount_cents, invoice.currency)}</span></td>
+              <td class="num">${isTaxExempt ? formatCents(0, invoice.currency) : `${Number(item.vat_rate).toLocaleString("de-DE")} %<br /><span class="muted">${formatCents(item.vat_amount_cents, invoice.currency)}</span>`}</td>
               <td class="num">${formatCents(item.gross_amount_cents, invoice.currency)}</td>
             </tr>`
           )
@@ -154,8 +182,8 @@ export async function GET(
     <section class="payment">
       <div>
         <p class="label">Zahlungsmöglichkeiten</p>
-        <p>Bitte überweisen Sie den Betrag unter Angabe der Referenz.</p>
-        <p><strong>Referenz:</strong> ${escapeHtml(invoice.invoice_number ?? invoice.id)}</p>
+        <p>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</p>
+        ${paymentQrImage ? `<div class="qr"><img src="${escapeHtml(paymentQrImage)}" alt="${escapeHtml(paymentQrLabel ?? "Zahlungs-QR-Code")}" /><p class="qr-label">${escapeHtml(paymentQrLabel ?? "Zahlungs-QR-Code")}</p></div>` : ""}
       </div>
       <div>
         <p class="label">Bankverbindung</p>
@@ -165,8 +193,6 @@ export async function GET(
         ${value(bank, "bank_name") ? `${escapeHtml(value(bank, "bank_name"))}<br />` : ""}
       </div>
     </section>
-
-    <p class="footer">Diese Rechnung wurde aus der Buchhaltungs-App erstellt. Bitte bewahren Sie dieses Dokument für Ihre Unterlagen auf.</p>
   </main>
 </body>
 </html>`;

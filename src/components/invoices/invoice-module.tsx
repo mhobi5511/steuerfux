@@ -24,6 +24,11 @@ import {
   calculateInvoiceItem,
   formatCents
 } from "@/lib/invoice-utils";
+import {
+  getVatExemptionLabel,
+  getVatExemptionSentence,
+  getVatExemptionSettingsLabel
+} from "@/lib/invoice-tax";
 import type {
   BankAccount,
   Buchhaltung,
@@ -96,6 +101,16 @@ export function InvoiceModule({
   const [kleinunternehmer, setKleinunternehmer] = useState(
     editing?.kleinunternehmer ?? Boolean(invoiceSettings?.default_kleinunternehmer)
   );
+  const [paymentQrEnabled, setPaymentQrEnabled] = useState(
+    typeof editing?.qr_payment_snapshot?.generated_enabled === "boolean"
+      ? Boolean(editing.qr_payment_snapshot.generated_enabled)
+      : Boolean(invoiceSettings?.default_payment_qr_enabled)
+  );
+  const [useUploadedQr, setUseUploadedQr] = useState(
+    typeof editing?.qr_payment_snapshot?.use_uploaded_qr === "boolean"
+      ? Boolean(editing.qr_payment_snapshot.use_uploaded_qr)
+      : Boolean(invoiceSettings?.default_use_uploaded_qr)
+  );
   const [selectedCustomerId, setSelectedCustomerId] = useState(editing?.customer_id ?? "");
   const [items, setItems] = useState<DraftItem[]>(
     editing?.items?.length
@@ -113,6 +128,9 @@ export function InvoiceModule({
   );
 
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId);
+  const vatExemptionLabel = getVatExemptionLabel(activeBuchhaltung?.country ?? "Deutschland");
+  const vatExemptionSettingsLabel = getVatExemptionSettingsLabel(activeBuchhaltung?.country ?? "Deutschland");
+  const vatExemptionSentence = getVatExemptionSentence(activeBuchhaltung?.country ?? "Deutschland");
   const dueDate = calculateDueDate(issueDate, paymentTerm, customDueDate);
   const totals = useMemo(() => {
     return items.reduce(
@@ -292,20 +310,16 @@ export function InvoiceModule({
                   <option value="CHF">CHF</option>
                 </Select>
               </Field>
-              {activeBuchhaltung?.country === "Deutschland" ? (
-                <Field label="Kleinunternehmerregelung §19 UStG anwenden">
-                  <Select
-                    name="kleinunternehmer"
-                    value={kleinunternehmer ? "true" : "false"}
-                    onChange={(event) => setKleinunternehmer(event.target.value === "true")}
-                  >
-                    <option value="false">Nein</option>
-                    <option value="true">Ja</option>
-                  </Select>
-                </Field>
-              ) : (
-                <input name="kleinunternehmer" type="hidden" value="false" />
-              )}
+              <Field label={vatExemptionLabel}>
+                <Select
+                  name="kleinunternehmer"
+                  value={kleinunternehmer ? "true" : "false"}
+                  onChange={(event) => setKleinunternehmer(event.target.value === "true")}
+                >
+                  <option value="false">Nein</option>
+                  <option value="true">Ja</option>
+                </Select>
+              </Field>
               <Field label="Bankverbindung">
                 <Select name="bank_account_id" defaultValue={editing?.bank_account_id ?? bankAccounts.find((bank) => bank.currency === currency && bank.is_default)?.id ?? ""}>
                   <option value="">Keine Bankverbindung</option>
@@ -314,6 +328,26 @@ export function InvoiceModule({
                       {bank.label} · {bank.currency}
                     </option>
                   ))}
+                </Select>
+              </Field>
+              <Field label="Automatischen Zahlungs-QR-Code anzeigen">
+                <Select
+                  name="payment_qr_enabled"
+                  value={paymentQrEnabled ? "true" : "false"}
+                  onChange={(event) => setPaymentQrEnabled(event.target.value === "true")}
+                >
+                  <option value="true">Ja</option>
+                  <option value="false">Nein</option>
+                </Select>
+              </Field>
+              <Field label="Hochgeladenen QR-Code verwenden">
+                <Select
+                  name="use_uploaded_qr"
+                  value={useUploadedQr ? "true" : "false"}
+                  onChange={(event) => setUseUploadedQr(event.target.value === "true")}
+                >
+                  <option value="false">Nein</option>
+                  <option value="true">Ja</option>
                 </Select>
               </Field>
 
@@ -417,7 +451,7 @@ export function InvoiceModule({
               </div>
               {kleinunternehmer ? (
                 <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-                  Nach der Kleinunternehmerregelung laut §19 UStG entfällt die Verrechnung der Umsatzsteuer.
+                  {vatExemptionSentence}
                 </p>
               ) : null}
             </div>
@@ -556,14 +590,16 @@ export function InvoiceModule({
               <Field label="Nächste Nummer"><Input name="next_invoice_number" type="number" defaultValue={invoiceSettings?.next_invoice_number ?? 1} /></Field>
               <Field label="Jährlicher Reset"><Select name="yearly_reset" defaultValue={invoiceSettings?.yearly_reset === false ? "false" : "true"}><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
               <Field label="Standard-Zahlungsziel"><Select name="default_payment_term" defaultValue={invoiceSettings?.default_payment_term ?? "1 Monat"}>{["sofort", "7 Tage", "14 Tage", "30 Tage", "1 Monat"].map((term) => <option key={term} value={term}>{term}</option>)}</Select></Field>
-              <Field label="§19 als Standard"><Select name="default_kleinunternehmer" defaultValue={invoiceSettings?.default_kleinunternehmer ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
+              <Field label={vatExemptionSettingsLabel}><Select name="default_kleinunternehmer" defaultValue={invoiceSettings?.default_kleinunternehmer ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
+              <Field label="Automatischen Zahlungs-QR-Code anzeigen"><Select name="default_payment_qr_enabled" defaultValue={invoiceSettings?.default_payment_qr_enabled ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
+              <Field label="Hochgeladenen QR-Code verwenden"><Select name="default_use_uploaded_qr" defaultValue={invoiceSettings?.default_use_uploaded_qr ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
               <div className="lg:col-span-2 flex justify-end"><Button type="submit">Einstellungen speichern</Button></div>
             </form>
           </Card>
 
           <Card className="space-y-4">
             <h2 className="text-lg font-semibold text-slate-950">Bankverbindung</h2>
-            <form action={submitAction(saveBankAccount)} className="grid gap-4 lg:grid-cols-2">
+            <form action={submitAction(saveBankAccount)} className="grid gap-4 lg:grid-cols-2" encType="multipart/form-data">
               <Field label="Bezeichnung"><Input name="label" placeholder="EUR Konto" /></Field>
               <Field label="Währung"><Select name="currency" defaultValue={defaultCurrency}><option value="EUR">EUR</option><option value="CHF">CHF</option></Select></Field>
               <Field label="Kontoinhaber"><Input name="account_holder" /></Field>
@@ -572,6 +608,7 @@ export function InvoiceModule({
               <Field label="Bankname"><Input name="bank_name" /></Field>
               <Field label="Bankadresse optional"><Input name="bank_address" /></Field>
               <Field label="Standardkonto"><Select name="is_default" defaultValue="true"><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
+              <Field label="QR-Code hochladen optional"><Input name="qr_code" type="file" accept="image/*" /></Field>
               <div className="lg:col-span-2 flex justify-end"><Button type="submit">Bankverbindung speichern</Button></div>
             </form>
             <div className="space-y-2 text-sm text-slate-700">

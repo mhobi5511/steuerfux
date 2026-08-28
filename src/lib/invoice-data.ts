@@ -73,3 +73,12 @@ export async function getInvoiceForView(id: string) {
 
   return data as Invoice | null;
 }
+
+export async function createInvoiceAssetSignedUrl(storagePath: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.storage
+    .from("invoice-assets")
+    .createSignedUrl(storagePath, 60 * 5);
+  if (error) return null;
+  return data.signedUrl;
+}
