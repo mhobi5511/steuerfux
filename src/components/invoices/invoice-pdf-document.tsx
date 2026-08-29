@@ -105,7 +105,16 @@ export async function renderInvoicePdf(props: Props) {
           <View style={[styles.totalRow, styles.grand]}><Text>Zu zahlender Betrag</Text><Text>{formatCents(invoice.gross_total_cents, invoice.currency)}</Text></View>
         </View>
         <View style={styles.payment}>
-          <View style={styles.paymentColumn}><Text style={styles.label}>ZAHLUNGSMÖGLICHKEITEN</Text><Text>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</Text>{qrImage ? <><Image style={styles.qr} src={qrImage} /><Text style={styles.qrLabel}>{qrLabel ?? "Zahlungs-QR-Code"}</Text></> : null}</View>
+          <View style={styles.paymentColumn}>
+            <Text style={styles.label}>ZAHLUNGSMÖGLICHKEITEN</Text>
+            <Text>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</Text>
+            {qrImage ? <>
+              {/* @react-pdf/renderer Image has no HTML alt prop. The visible label follows it. */}
+              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+              <Image style={styles.qr} src={qrImage} />
+              <Text style={styles.qrLabel}>{qrLabel ?? "Zahlungs-QR-Code"}</Text>
+            </> : null}
+          </View>
           <View style={styles.paymentColumn}><Text style={styles.label}>BANKVERBINDUNG</Text><Text>{lines([value(bank, "account_holder"), value(bank, "iban") ? `IBAN: ${value(bank, "iban")}` : "", value(bank, "bic") ? `BIC / SWIFT: ${value(bank, "bic")}` : "", value(bank, "bank_name")])}</Text></View>
         </View>
       </Page>

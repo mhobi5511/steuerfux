@@ -3,19 +3,23 @@ import { deleteDepreciation } from "@/app/actions/finance";
 import { DepreciationForm } from "@/components/forms/depreciation-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { DeleteButton } from "@/components/records/delete-button";
+import { SimpleTable } from "@/components/records/simple-table";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function DepreciationsPage({
   searchParams
 }: {
-  searchParams?: { edit?: string };
+  searchParams?: Promise<{ edit?: string }>;
 }) {
-  const { depreciations, settings, activeBuchhaltung } = await getModuleData();
+  const resolvedSearchParams = await searchParams;
+  const { depreciations, settings, activeBuchhaltung } = await getModuleData(undefined, [
+    "depreciations"
+  ]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
-  const editing = depreciations.find((item) => item.id === searchParams?.edit) ?? null;
+  const editing = depreciations.find((item) => item.id === resolvedSearchParams?.edit) ?? null;
 
   return (
     <div className="space-y-6">
@@ -52,7 +56,7 @@ export default async function DepreciationsPage({
             >
               Bearbeiten
             </Link>
-            <DeleteButton id={item.id} action={deleteDepreciation} />
+            <DeleteButton id={item.id} action={deleteDepreciation} label="Abschreibung" />
           </div>
         ])}
       />

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export function SimpleTable({
@@ -82,22 +81,5 @@ export function SimpleTable({
         </div>
       )}
     </Card>
-  );
-}
-
-export function DeleteButton({
-  action,
-  id
-}: {
-  action: (formData: FormData) => Promise<void>;
-  id: string;
-}) {
-  return (
-    <form action={action}>
-      <input name="id" type="hidden" value={id} />
-      <Button type="submit" variant="ghost">
-        Löschen
-      </Button>
-    </form>
   );
 }

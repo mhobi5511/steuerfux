@@ -6,7 +6,7 @@ import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function BankFeesPage() {
-  const { fees, settings, activeBuchhaltung } = await getModuleData();
+  const { fees, settings, activeBuchhaltung } = await getModuleData(undefined, ["fees"]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
 

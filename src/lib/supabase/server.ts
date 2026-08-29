@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 import type { CookieOptions } from "@supabase/ssr";
 import { createServerClient } from "@supabase/ssr";
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
 
   function trySetCookie(name: string, value: string, options: CookieOptions) {
     try {

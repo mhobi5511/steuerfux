@@ -55,7 +55,7 @@ export async function getSelectedBuchhaltung(
   settings: AppSettings | null
 ) {
   const buchhaltungen = await ensureDefaultBuchhaltung(supabase, user, settings);
-  const selectedId = cookies().get(selectedBuchhaltungCookie)?.value;
+  const selectedId = (await cookies()).get(selectedBuchhaltungCookie)?.value;
   const active =
     buchhaltungen.find((item) => item.id === selectedId) ??
     buchhaltungen.find((item) => item.status === "aktiv") ??
@@ -85,6 +85,9 @@ export function applyBuchhaltungSettings<T extends AppSettings | null>(
     ...settings,
     business_country: buchhaltung.country,
     reporting_currency: buchhaltung.reporting_currency,
+    // Input defaults follow the selected book so a global German EUR default
+    // can never leak into the Swiss daily-entry workflow (or vice versa).
+    default_currency: buchhaltung.reporting_currency,
     business_year: new Date(buchhaltung.start_date).getFullYear()
   };
 }

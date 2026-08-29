@@ -33,7 +33,7 @@ function translateSupabaseAuthError(message: string) {
 export async function login(formData: FormData) {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
@@ -56,7 +56,7 @@ export async function register(formData: FormData) {
     return { error: "Das Passwort muss mindestens 6 Zeichen lang sein." };
   }
 
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
@@ -83,7 +83,7 @@ export async function register(formData: FormData) {
 }
 
 export async function logout() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
   redirect("/login");
 }

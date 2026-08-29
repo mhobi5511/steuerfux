@@ -21,9 +21,10 @@ function escapeHtml(input: string) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const invoice = await getInvoiceForView(params.id);
+  const { id } = await params;
+  const invoice = await getInvoiceForView(id);
   if (!invoice) {
     return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
   }

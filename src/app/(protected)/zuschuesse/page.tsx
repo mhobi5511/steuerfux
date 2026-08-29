@@ -2,12 +2,15 @@ import { deleteReimbursement } from "@/app/actions/finance";
 import { ReimbursementForm } from "@/components/forms/reimbursement-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { DeleteButton } from "@/components/records/delete-button";
+import { SimpleTable } from "@/components/records/simple-table";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function ReimbursementsPage() {
-  const { reimbursements, settings, activeBuchhaltung } = await getModuleData();
+  const { reimbursements, settings, activeBuchhaltung } = await getModuleData(undefined, [
+    "reimbursements"
+  ]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
 
@@ -39,7 +42,7 @@ export default async function ReimbursementsPage() {
           item.context_type,
           `${formatCurrency(item.original_amount, item.currency)} (${item.tax_mode})`,
           formatCurrency(item.amount_reporting, reportingCurrency),
-          readOnly ? "Schreibgeschützt" : <DeleteButton key={item.id} id={item.id} action={deleteReimbursement} />
+          readOnly ? "Schreibgeschützt" : <DeleteButton key={item.id} id={item.id} action={deleteReimbursement} label="Zuschuss" />
         ])}
       />
     </div>

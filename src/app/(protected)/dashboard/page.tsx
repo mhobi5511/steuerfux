@@ -8,8 +8,9 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 export default async function DashboardPage({
   searchParams
 }: {
-  searchParams?: { reset?: string };
+  searchParams?: Promise<{ reset?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const data = await getDashboardData();
   const estimatedTaxRate = data.settings?.estimated_tax_rate ?? 0;
   const showAdvisorDetails = Boolean(data.settings?.steuerberater_view);
@@ -110,7 +111,7 @@ export default async function DashboardPage({
         }
       />
 
-      {searchParams?.reset === "1" ? (
+      {resolvedSearchParams?.reset === "1" ? (
         <Card className="border-emerald-200 bg-emerald-50">
           <p className="text-sm text-emerald-700">Alle Daten wurden gelöscht.</p>
         </Card>

@@ -7,20 +7,23 @@ import {
   getSelectedMonth,
   matchesSelectedMonth
 } from "@/components/records/month-filter";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { DeleteButton } from "@/components/records/delete-button";
+import { SimpleTable } from "@/components/records/simple-table";
 import { ReceiptLink } from "@/components/records/receipt-link";
 import { getModuleData } from "@/lib/data";
+import type { Receipt } from "@/lib/db-types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default async function ExpensesPage({
   searchParams
 }: {
-  searchParams?: { month?: string };
+  searchParams?: Promise<{ month?: string }>;
 }) {
-  const { expenses, settings, activeBuchhaltung } = await getModuleData();
+  const resolvedSearchParams = await searchParams;
+  const { expenses, settings, activeBuchhaltung } = await getModuleData(undefined, ["expenses"]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
-  const selectedMonth = getSelectedMonth(searchParams?.month);
+  const selectedMonth = getSelectedMonth(resolvedSearchParams?.month);
   const filteredExpenses = expenses.filter((expense) =>
     matchesSelectedMonth(expense.payment_date || expense.expense_date, selectedMonth)
   );
@@ -61,15 +64,17 @@ export default async function ExpensesPage({
               : `${expense.client_share_percentage}% / ${formatCurrency(expense.client_share_amount_reporting, reportingCurrency)}`
             : "Keine",
           `${formatCurrency(expense.effective_amount_reporting ?? expense.amount_reporting, reportingCurrency)} / absetzbar ${formatCurrency(expense.effective_deductible_amount_reporting ?? expense.deductible_amount_reporting, reportingCurrency)}`,
-          expense.receipts?.[0]?.id ? (
+          expense.receipts?.length ? (
             <div key={`${expense.id}-receipt`} className="space-y-1">
-              <p>Beleg vorhanden</p>
-              <ReceiptLink receiptId={expense.receipts[0].id} />
+              <p>{expense.receipts.length === 1 ? "Beleg vorhanden" : `${expense.receipts.length} Belege vorhanden`}</p>
+              {expense.receipts.map((receipt: Receipt) => (
+                <ReceiptLink key={receipt.id} receiptId={receipt.id} />
+              ))}
             </div>
           ) : (
             "Kein Beleg"
           ),
-          readOnly ? "Schreibgeschützt" : <DeleteButton key={expense.id} id={expense.id} action={deleteExpense} />
+          readOnly ? "Schreibgeschützt" : <DeleteButton key={expense.id} id={expense.id} action={deleteExpense} label="Ausgabe" />
         ])}
       />
     </div>

@@ -8,7 +8,8 @@ import {
   getSelectedMonth,
   matchesSelectedMonth
 } from "@/components/records/month-filter";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { DeleteButton } from "@/components/records/delete-button";
+import { SimpleTable } from "@/components/records/simple-table";
 import { Button } from "@/components/ui/button";
 import { getModuleData } from "@/lib/data";
 import { normalizeIncomeStatus } from "@/lib/income-status";
@@ -34,13 +35,14 @@ function IncomeStatusBadge({ status }: { status: string | null | undefined }) {
 export default async function IncomesPage({
   searchParams
 }: {
-  searchParams?: { edit?: string; month?: string };
+  searchParams?: Promise<{ edit?: string; month?: string }>;
 }) {
-  const { incomes, settings, activeBuchhaltung } = await getModuleData();
+  const resolvedSearchParams = await searchParams;
+  const { incomes, settings, activeBuchhaltung } = await getModuleData(undefined, ["incomes"]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
-  const editing = incomes.find((income) => income.id === searchParams?.edit) ?? null;
-  const selectedMonth = getSelectedMonth(searchParams?.month);
+  const editing = incomes.find((income) => income.id === resolvedSearchParams?.edit) ?? null;
+  const selectedMonth = getSelectedMonth(resolvedSearchParams?.month);
   const filteredIncomes = incomes.filter((income) =>
     matchesSelectedMonth(income.invoice_date, selectedMonth)
   );
@@ -66,7 +68,7 @@ export default async function IncomesPage({
         showAdvisorDetails={Boolean(settings?.steuerberater_view)}
       />
       )}
-      <MonthFilter action="/einnahmen" selectedMonth={selectedMonth} editId={searchParams?.edit} />
+      <MonthFilter action="/einnahmen" selectedMonth={selectedMonth} editId={resolvedSearchParams?.edit} />
       <SimpleTable
         title="Gespeicherte Einnahmen"
         columns={["Rechnungsdatum", "Kunde / Projekt", "Status", "Originalbetrag", "Kurs", "Berichtswährung", "Aktion"]}
@@ -84,7 +86,7 @@ export default async function IncomesPage({
                 Bearbeiten
               </Button>
             </Link>
-            <DeleteButton id={income.id} action={deleteIncome} />
+            <DeleteButton id={income.id} action={deleteIncome} label="Einnahme" />
           </div>
         ])}
       />

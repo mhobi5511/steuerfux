@@ -23,6 +23,24 @@ export function calculateDepreciationSummary(
   };
 }
 
+export function isDepreciationActiveInYear(
+  acquisitionDate: string,
+  usefulLifeYears: number,
+  reportYear: number
+) {
+  const acquisitionYear = Number(acquisitionDate.slice(0, 4));
+  if (
+    !Number.isInteger(acquisitionYear) ||
+    !Number.isInteger(usefulLifeYears) ||
+    usefulLifeYears < 1 ||
+    !Number.isInteger(reportYear)
+  ) {
+    return false;
+  }
+
+  return reportYear >= acquisitionYear && reportYear < acquisitionYear + usefulLifeYears;
+}
+
 export function getDepreciationSuggestion(
   businessCountry: BusinessCountry,
   amountReporting: number,

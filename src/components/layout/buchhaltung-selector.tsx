@@ -23,6 +23,8 @@ export function BuchhaltungSelector({
   const [pending, startTransition] = useTransition();
   const [mode, setMode] = useState<"none" | "close" | "create">("none");
   const [country, setCountry] = useState<BusinessCountry>("Deutschland");
+  const [reportingCurrency, setReportingCurrency] =
+    useState<ReportingCurrency>("EUR");
 
   return (
     <div className="space-y-3 rounded-[1.35rem] border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
@@ -133,7 +135,11 @@ export function BuchhaltungSelector({
             <Select
               name="country"
               value={country}
-              onChange={(event) => setCountry(event.target.value as BusinessCountry)}
+              onChange={(event) => {
+                const nextCountry = event.target.value as BusinessCountry;
+                setCountry(nextCountry);
+                setReportingCurrency(nextCountry === "Schweiz" ? "CHF" : "EUR");
+              }}
             >
               <option value="Deutschland">Deutschland</option>
               <option value="Schweiz">Schweiz</option>
@@ -142,7 +148,10 @@ export function BuchhaltungSelector({
           <Field label="Berichtswährung">
             <Select
               name="reporting_currency"
-              defaultValue={(country === "Schweiz" ? "CHF" : "EUR") as ReportingCurrency}
+              value={reportingCurrency}
+              onChange={(event) =>
+                setReportingCurrency(event.target.value as ReportingCurrency)
+              }
             >
               <option value="EUR">EUR</option>
               <option value="CHF">CHF</option>

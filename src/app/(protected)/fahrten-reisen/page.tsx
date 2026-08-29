@@ -8,7 +8,8 @@ import {
   getSelectedMonth,
   matchesSelectedMonth
 } from "@/components/records/month-filter";
-import { DeleteButton, SimpleTable } from "@/components/records/simple-table";
+import { DeleteButton } from "@/components/records/delete-button";
+import { SimpleTable } from "@/components/records/simple-table";
 import { Button } from "@/components/ui/button";
 import { getModuleData } from "@/lib/data";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -16,15 +17,19 @@ import { formatCurrency, formatDateTime } from "@/lib/utils";
 export default async function TripsPage({
   searchParams
 }: {
-  searchParams?: { edit?: string; month?: string };
+  searchParams?: Promise<{ edit?: string; month?: string }>;
 }) {
-  const { trips, reimbursements, settings, activeBuchhaltung } = await getModuleData();
+  const resolvedSearchParams = await searchParams;
+  const { trips, reimbursements, settings, activeBuchhaltung } = await getModuleData(undefined, [
+    "trips",
+    "reimbursements"
+  ]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
-  const initialTrip = trips.find((trip) => trip.id === searchParams?.edit) ?? null;
+  const initialTrip = trips.find((trip) => trip.id === resolvedSearchParams?.edit) ?? null;
   const initialReimbursement =
-    reimbursements.find((item) => item.source_trip_id === searchParams?.edit) ?? null;
-  const selectedMonth = getSelectedMonth(searchParams?.month);
+    reimbursements.find((item) => item.source_trip_id === resolvedSearchParams?.edit) ?? null;
+  const selectedMonth = getSelectedMonth(resolvedSearchParams?.month);
   const filteredTrips = trips.filter((trip) => matchesSelectedMonth(trip.start_at, selectedMonth));
 
   return (
@@ -52,7 +57,7 @@ export default async function TripsPage({
       <MonthFilter
         action="/fahrten-reisen"
         selectedMonth={selectedMonth}
-        editId={searchParams?.edit}
+        editId={resolvedSearchParams?.edit}
       />
       <SimpleTable
         title="Gespeicherte Reisen"
@@ -79,7 +84,7 @@ export default async function TripsPage({
                 Bearbeiten
               </Button>
             </Link>
-            <DeleteButton id={trip.id} action={deleteTrip} />
+            <DeleteButton id={trip.id} action={deleteTrip} label="Reise" />
           </div>
         ])}
       />

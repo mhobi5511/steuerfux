@@ -1,6 +1,10 @@
+import { cache } from "react";
 import { requireUser } from "@/lib/auth";
 import { basePerDiemRates } from "@/lib/per-diem";
-import { calculateDepreciationSummary } from "@/lib/depreciation";
+import {
+  calculateDepreciationSummary,
+  isDepreciationActiveInYear
+} from "@/lib/depreciation";
 import { isIncomePaid, normalizeIncomeStatus } from "@/lib/income-status";
 import { calculateTripTotals } from "@/lib/trips";
 import { getYearEnd, getYearStart, safeArray } from "@/lib/utils";
@@ -9,82 +13,130 @@ import {
   getSelectedBuchhaltung
 } from "@/lib/buchhaltungen";
 
-export async function getSettings() {
-  const { supabase, user } = await requireUser();
-  const { data } = await supabase.from("settings").select("*").maybeSingle();
-  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, data);
-  return applyBuchhaltungSettings(data, activeBuchhaltung);
-}
+export type ModuleDataset =
+  | "incomes"
+  | "expenses"
+  | "fees"
+  | "trips"
+  | "depreciations"
+  | "reimbursements"
+  | "invoices";
 
-export async function getBuchhaltungContext() {
-  const { supabase, user } = await requireUser();
-  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
-  return getSelectedBuchhaltung(supabase, user, settings);
-}
+const allModuleDatasets: ModuleDataset[] = [
+  "incomes",
+  "expenses",
+  "fees",
+  "trips",
+  "depreciations",
+  "reimbursements",
+  "invoices"
+];
 
-export async function getModuleData(year?: number) {
+export const getAccountingContext = cache(async () => {
   const { supabase, user } = await requireUser();
-  const { data: rawSettings } = await supabase.from("settings").select("*").maybeSingle();
+  const { data: rawSettings } = await supabase
+    .from("settings")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
   const { buchhaltungen, activeBuchhaltung } = await getSelectedBuchhaltung(
     supabase,
     user,
     rawSettings
   );
-  const settings = applyBuchhaltungSettings(rawSettings, activeBuchhaltung);
+
+  return {
+    supabase,
+    user,
+    rawSettings,
+    settings: applyBuchhaltungSettings(rawSettings, activeBuchhaltung),
+    buchhaltungen,
+    activeBuchhaltung
+  };
+});
+
+export async function getSettings() {
+  const { settings } = await getAccountingContext();
+  return settings;
+}
+
+export async function getBuchhaltungContext() {
+  const { buchhaltungen, activeBuchhaltung } = await getAccountingContext();
+  return { buchhaltungen, activeBuchhaltung };
+}
+
+export async function getModuleData(year?: number, datasets: ModuleDataset[] = allModuleDatasets) {
+  const {
+    supabase,
+    user,
+    settings,
+    buchhaltungen,
+    activeBuchhaltung
+  } = await getAccountingContext();
   const businessYear = year ?? settings?.business_year ?? new Date().getFullYear();
   const from = getYearStart(businessYear);
   const to = getYearEnd(businessYear);
+  const selected = new Set(datasets);
+  const activeId = activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000";
+  const emptyResult = () => Promise.resolve({ data: [] as Record<string, unknown>[] });
 
-  const [incomes, expenses, fees, trips, depreciations, reimbursements] = await Promise.all([
-    supabase
+  const [incomes, expenses, fees, trips, depreciations, reimbursements, invoices] =
+    await Promise.all([
+    selected.has("incomes") ? supabase
       .from("incomes")
       .select("*")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .gte("invoice_date", from)
       .lte("invoice_date", to)
-      .order("invoice_date", { ascending: false }),
-    supabase
+      .order("invoice_date", { ascending: false }) : emptyResult(),
+    selected.has("expenses") ? supabase
       .from("expenses")
       .select("*, receipts(*)")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .gte("expense_date", from)
       .lte("expense_date", to)
-      .order("expense_date", { ascending: false }),
-    supabase
+      .order("expense_date", { ascending: false }) : emptyResult(),
+    selected.has("fees") ? supabase
       .from("bank_fees")
       .select("*")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .gte("fee_date", from)
       .lte("fee_date", to)
-      .order("fee_date", { ascending: false }),
-    supabase
+      .order("fee_date", { ascending: false }) : emptyResult(),
+    selected.has("trips") ? supabase
       .from("trips")
       .select("*, trip_stops(*), trip_segments(*)")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .gte("start_at", `${from}T00:00:00`)
       .lte("start_at", `${to}T23:59:59`)
-      .order("start_at", { ascending: false }),
-    supabase
+      .order("start_at", { ascending: false }) : emptyResult(),
+    selected.has("depreciations") ? supabase
       .from("depreciations")
       .select("*")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
-      .gte("acquisition_date", from)
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .lte("acquisition_date", to)
-      .order("acquisition_date", { ascending: false }),
-    supabase
+      .order("acquisition_date", { ascending: false }) : emptyResult(),
+    selected.has("reimbursements") ? supabase
       .from("reimbursements")
       .select("*")
-      .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
       .gte("reimbursement_date", from)
       .lte("reimbursement_date", to)
-      .order("reimbursement_date", { ascending: false })
+      .order("reimbursement_date", { ascending: false }) : emptyResult(),
+    selected.has("invoices") ? supabase
+      .from("invoices")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", activeId)
+      .gte("issue_date", from)
+      .lte("issue_date", to) : emptyResult()
   ]);
-  const invoices = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("buchhaltung_id", activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000")
-    .gte("issue_date", from)
-    .lte("issue_date", to);
 
   return {
     businessYear,
@@ -146,10 +198,15 @@ export async function getDashboardData(year?: number) {
       sum + (row.total_travel_expenses_reporting ?? 0) + (row.total_per_diem_reporting ?? 0),
     0
   );
-  const depreciationTotal = data.depreciations.reduce(
-    (sum, row) => sum + (row.yearly_amount_reporting ?? 0),
-    0
-  );
+  const depreciationTotal = data.depreciations
+    .filter((row) =>
+      isDepreciationActiveInYear(
+        row.acquisition_date,
+        Number(row.useful_life_years),
+        data.businessYear
+      )
+    )
+    .reduce((sum, row) => sum + (row.yearly_amount_reporting ?? 0), 0);
   const today = new Date().toISOString().slice(0, 10);
   const openInvoices = data.invoices.filter((invoice) =>
     ["Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status)
@@ -197,7 +254,14 @@ export async function getDashboardData(year?: number) {
         .filter((row) => new Date(row.start_at).getMonth() + 1 === month)
         .reduce((sum, row) => sum + (row.total_per_diem_reporting ?? 0), 0) +
       data.depreciations
-        .filter((row) => new Date(row.acquisition_date).getMonth() + 1 === month)
+        .filter(
+          (row) =>
+            isDepreciationActiveInYear(
+              row.acquisition_date,
+              Number(row.useful_life_years),
+              data.businessYear
+            ) && new Date(row.acquisition_date).getMonth() + 1 === month
+        )
         .reduce((sum, row) => sum + (row.yearly_amount_reporting ?? 0), 0);
     const clientShare = data.expenses
       .filter((row) => new Date(row.expense_date).getMonth() + 1 === month)

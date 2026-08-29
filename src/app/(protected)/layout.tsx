@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
-import { requireUser } from "@/lib/auth";
 import { getBuchhaltungContext } from "@/lib/data";
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
-  await requireUser();
   const { buchhaltungen, activeBuchhaltung } = await getBuchhaltungContext();
 
   return (

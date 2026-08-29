@@ -31,6 +31,38 @@ import type { AppSettings, BusinessCountry, CurrencyCode, ReportingCurrency } fr
 
 type ActionResult = { success?: string; error?: string };
 
+const receiptMaxBytes = 6 * 1024 * 1024;
+const allowedReceiptMimeTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/heic",
+  "image/heif"
+]);
+const allowedReceiptExtensions = new Set(["pdf", "jpg", "jpeg", "png", "heic", "heif"]);
+const currentResetConfirmation = "AKTUELLE BUCHHALTUNG LOESCHEN";
+const allResetConfirmation = "ALLE BUCHHALTUNGEN LOESCHEN";
+
+function validateReceiptFile(file: File | null) {
+  if (!file || file.size === 0) return null;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const mayUseExtensionFallback = !file.type || file.type === "application/octet-stream";
+  if (
+    !allowedReceiptMimeTypes.has(file.type) &&
+    !(mayUseExtensionFallback && allowedReceiptExtensions.has(extension))
+  ) {
+    return "Der Beleg muss eine PDF-, JPG-, PNG-, HEIC- oder HEIF-Datei sein.";
+  }
+  if (file.size > receiptMaxBytes) {
+    return "Der Beleg ist größer als 6 MB. Bitte die Datei verkleinern und erneut versuchen.";
+  }
+  return null;
+}
+
+function destructiveResetIsEnabled() {
+  return process.env.ENABLE_DESTRUCTIVE_DATA_RESET === "true";
+}
+
 async function getUserSettings(
   supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]
 ): Promise<AppSettings | null> {
@@ -55,6 +87,37 @@ async function getActionContext(writable = false) {
     buchhaltungen,
     activeBuchhaltung,
     writeError
+  };
+}
+
+async function checkBuchhaltungFinancialHistory(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  buchhaltungId: string
+) {
+  const financialTables = [
+    "incomes",
+    "expenses",
+    "bank_fees",
+    "reimbursements",
+    "trips",
+    "depreciations",
+    "invoices"
+  ];
+  const results = await Promise.all(
+    financialTables.map((table) =>
+      supabase
+        .from(table)
+        .select("id")
+        .eq("user_id", userId)
+        .eq("buchhaltung_id", buchhaltungId)
+        .limit(1)
+    )
+  );
+
+  return {
+    hasHistory: results.some((result) => (result.data?.length ?? 0) > 0),
+    error: results.find((result) => result.error)?.error ?? null
   };
 }
 
@@ -359,6 +422,10 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
   const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
   if (writeError) return { error: writeError };
   const { businessCountry, reportingCurrency } = getReportingContext(settings);
+  const receiptEntry = formData.get("receipt_file");
+  const receiptFile = receiptEntry instanceof File && receiptEntry.size > 0 ? receiptEntry : null;
+  const receiptValidationError = validateReceiptFile(receiptFile);
+  if (receiptValidationError) return { error: receiptValidationError };
 
   const parsed = expenseSchema.safeParse({
     payment_date: formData.get("payment_date"),
@@ -479,7 +546,7 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
     effective_deductible_amount_reporting: values.deductible
       ? effectiveDeductibleAmountReporting
       : 0,
-    receipt_available: values.receipt_available,
+    ...(expenseId ? {} : { receipt_available: false }),
     note: values.note,
     is_depreciable: values.is_depreciable,
     acquisition_value: values.acquisition_value ?? amountReporting,
@@ -530,40 +597,36 @@ export async function upsertExpense(formData: FormData): Promise<ActionResult> {
 
   await removeLegacyExpenseReimbursement(supabase, user.id, data.id);
 
-  const receipt = formData.get("receipt_file");
   let receiptUploadFailed = false;
-  if (receipt instanceof File && receipt.size > 0) {
-    const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (receiptFile) {
+    const safeName = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const storagePath = `${user.id}/${activeBuchhaltung!.id}/${data.id}/${crypto.randomUUID()}-${safeName}`;
     const { error: uploadError } = await supabase.storage
       .from("receipts")
-      .upload(storagePath, receipt, {
-        contentType: receipt.type || "application/octet-stream",
-        upsert: true
+      .upload(storagePath, receiptFile, {
+        contentType: receiptFile.type || "application/octet-stream",
+        upsert: false
       });
 
     if (uploadError) {
       console.error("receipt upload error:", uploadError);
       receiptUploadFailed = true;
     } else {
-      await supabase
-        .from("receipts")
-        .delete()
-        .eq("expense_id", data.id)
-        .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung!.id);
       const { error: receiptError } = await supabase.from("receipts").insert({
         user_id: user.id,
         buchhaltung_id: activeBuchhaltung!.id,
         expense_id: data.id,
         storage_path: storagePath,
-        original_filename: receipt.name,
-        mime_type: receipt.type || "application/octet-stream",
-        file_size: receipt.size
+        original_filename: receiptFile.name,
+        mime_type: receiptFile.type || "application/octet-stream",
+        file_size: receiptFile.size
       });
       if (receiptError) {
         console.error("receipt metadata error:", receiptError);
         receiptUploadFailed = true;
+        // This object was created by this failed action and has no metadata
+        // reference. Removing it cannot affect an existing receipt.
+        await supabase.storage.from("receipts").remove([storagePath]);
       } else {
         await supabase
           .from("expenses")
@@ -873,6 +936,38 @@ export async function saveSettings(formData: FormData): Promise<ActionResult> {
     return { error: parsed.error.issues[0]?.message ?? "Einstellungen sind unvollstÃ¤ndig." };
   }
 
+  const changesBookIdentity = Boolean(
+    activeBuchhaltung &&
+      (activeBuchhaltung.country !== parsed.data.business_country ||
+        activeBuchhaltung.reporting_currency !== parsed.data.reporting_currency)
+  );
+  if (activeBuchhaltung && changesBookIdentity) {
+    if (activeBuchhaltung.status === "abgeschlossen") {
+      return {
+        error:
+          "Land und Berichtswährung einer abgeschlossenen Buchhaltung können nicht geändert werden."
+      };
+    }
+    const history = await checkBuchhaltungFinancialHistory(
+      supabase,
+      user.id,
+      activeBuchhaltung.id
+    );
+    if (history.error) {
+      console.error("buchhaltung history check error:", history.error);
+      return {
+        error:
+          "Vorhandene Buchungen konnten nicht sicher geprüft werden. Land und Berichtswährung wurden nicht geändert."
+      };
+    }
+    if (history.hasHistory) {
+      return {
+        error:
+          "Land und Berichtswährung sind nach der ersten Buchung gesperrt. Lege für einen anderen Kontext eine neue Buchhaltung an."
+      };
+    }
+  }
+
   const payload = {
     ...parsed.data,
     user_id: user.id
@@ -938,7 +1033,7 @@ export async function selectBuchhaltung(formData: FormData) {
     .maybeSingle();
 
   if (data?.id) {
-    cookies().set(selectedBuchhaltungCookie, data.id, {
+    (await cookies()).set(selectedBuchhaltungCookie, data.id, {
       path: "/",
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 365
@@ -1005,7 +1100,7 @@ export async function createBuchhaltung(formData: FormData): Promise<ActionResul
     .single();
 
   if (error || !data?.id) return { error: "Buchhaltung konnte nicht angelegt werden." };
-  cookies().set(selectedBuchhaltungCookie, data.id, {
+  (await cookies()).set(selectedBuchhaltungCookie, data.id, {
     path: "/",
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 365
@@ -1078,9 +1173,18 @@ async function removeReceiptFilesForUser(
   if (paths.length) await supabase.storage.from("receipts").remove(paths);
 }
 
-export async function resetCurrentBuchhaltungData(): Promise<ActionResult> {
+export async function resetCurrentBuchhaltungData(formData: FormData): Promise<ActionResult> {
+  if (!destructiveResetIsEnabled()) {
+    return { error: "Das Löschen von Produktionsdaten ist in dieser Umgebung deaktiviert." };
+  }
   const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
   if (writeError) return { error: writeError };
+  if (
+    String(formData.get("confirmation") ?? "") !== currentResetConfirmation ||
+    String(formData.get("buchhaltung_id") ?? "") !== activeBuchhaltung?.id
+  ) {
+    return { error: `Bestätigung fehlgeschlagen. Bitte exakt „${currentResetConfirmation}“ eingeben.` };
+  }
   const buchhaltungId = activeBuchhaltung!.id;
 
   try {
@@ -1103,7 +1207,13 @@ export async function resetCurrentBuchhaltungData(): Promise<ActionResult> {
   }
 }
 
-export async function resetAllUserData(): Promise<ActionResult> {
+export async function resetAllUserData(formData: FormData): Promise<ActionResult> {
+  if (!destructiveResetIsEnabled()) {
+    return { error: "Das Löschen von Produktionsdaten ist in dieser Umgebung deaktiviert." };
+  }
+  if (String(formData.get("confirmation") ?? "") !== allResetConfirmation) {
+    return { error: `Bestätigung fehlgeschlagen. Bitte exakt „${allResetConfirmation}“ eingeben.` };
+  }
   const { supabase, user } = await requireUser();
 
   try {
@@ -1155,7 +1265,7 @@ export async function resetAllUserData(): Promise<ActionResult> {
       "/einstellungen"
     ].forEach((path) => revalidatePath(path));
 
-    cookies().delete(selectedBuchhaltungCookie);
+    (await cookies()).delete(selectedBuchhaltungCookie);
     return { success: "Alle Daten wurden geloescht" };
   } catch (error) {
     console.error("resetAllUserData error:", error);
@@ -1282,7 +1392,7 @@ export async function createTrip(formData: FormData): Promise<ActionResult> {
           to_label: String(segment.to_label ?? ""),
           kilometers,
           is_business: segment.is_business !== false,
-          deduction_reporting: roundMoney(kilometers * 0.3),
+          deduction_reporting: segment.is_business === false ? 0 : roundMoney(kilometers * 0.3),
           note: segment.note ? String(segment.note) : null
         };
       })
@@ -1473,7 +1583,7 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
           to_label: String(segment.to_label ?? ""),
           kilometers,
           is_business: segment.is_business !== false,
-          deduction_reporting: roundMoney(kilometers * 0.3),
+          deduction_reporting: segment.is_business === false ? 0 : roundMoney(kilometers * 0.3),
           note: segment.note ? String(segment.note) : null
         };
       })

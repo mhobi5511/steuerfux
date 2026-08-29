@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { getSelectedBuchhaltung } from "@/lib/buchhaltungen";
+import { getAccountingContext } from "@/lib/data";
 import type {
   BankAccount,
   Customer,
@@ -7,10 +8,14 @@ import type {
   InvoiceSettings
 } from "@/lib/db-types";
 
-export async function getInvoiceModuleData() {
-  const { supabase, user } = await requireUser();
-  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
-  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, settings);
+export async function getInvoiceModuleData({
+  includeInvoices = true,
+  includeCustomers = true
+}: {
+  includeInvoices?: boolean;
+  includeCustomers?: boolean;
+} = {}) {
+  const { supabase, user, settings, activeBuchhaltung } = await getAccountingContext();
 
   if (!activeBuchhaltung) {
     return {
@@ -24,24 +29,28 @@ export async function getInvoiceModuleData() {
   }
 
   const [customers, invoices, invoiceSettings, bankAccounts] = await Promise.all([
-    supabase
+    includeCustomers ? supabase
       .from("customers")
       .select("*")
+      .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
-      .order("company_name", { ascending: true }),
-    supabase
+      .order("company_name", { ascending: true }) : Promise.resolve({ data: [] }),
+    includeInvoices ? supabase
       .from("invoices")
       .select("*, invoice_items(*), invoice_payments(*)")
+      .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     supabase
       .from("invoice_settings")
       .select("*")
+      .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
       .maybeSingle(),
     supabase
       .from("bank_accounts")
       .select("*")
+      .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
       .order("is_default", { ascending: false })
       .order("label", { ascending: true })
@@ -62,9 +71,7 @@ export async function getInvoiceModuleData() {
 }
 
 export async function getInvoiceForView(id: string) {
-  const { supabase, user } = await requireUser();
-  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
-  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, settings);
+  const { supabase, user, activeBuchhaltung } = await getAccountingContext();
   if (!activeBuchhaltung) return null;
 
   const { data } = await supabase

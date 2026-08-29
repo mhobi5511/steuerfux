@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDashboardData } from "@/lib/data";
-import { formatCurrency } from "@/lib/utils";
+import { escapeHtml, formatCurrency } from "@/lib/utils";
 
 function formatReportDate(value = new Date()) {
   return new Intl.DateTimeFormat("de-DE", {
@@ -21,7 +21,10 @@ function metricRow(label: string, value: string, emphasis = false) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const year = Number(searchParams.get("year") ?? new Date().getFullYear());
+  const requestedYear = Number(searchParams.get("year") ?? new Date().getFullYear());
+  const year = Number.isInteger(requestedYear) && requestedYear >= 2020 && requestedYear <= 2100
+    ? requestedYear
+    : new Date().getFullYear();
   const data = await getDashboardData(year);
   const ownerName = data.settings?.business_owner_name || "Buchhaltung";
   const travelTotal = data.kpis.tripDrivingTotal + data.kpis.tripTravelTotal;
@@ -238,7 +241,7 @@ export async function GET(request: Request) {
               <h1>Jahresreport ${year}</h1>
             </div>
             <aside class="meta">
-              <div><span>Name</span><strong>${ownerName}</strong></div>
+              <div><span>Name</span><strong>${escapeHtml(ownerName)}</strong></div>
               <div><span>Währung</span><strong>${data.reportingCurrency}</strong></div>
               <div><span>Erstellt</span><strong>${formatReportDate()}</strong></div>
             </aside>

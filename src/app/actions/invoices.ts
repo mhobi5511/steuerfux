@@ -15,7 +15,7 @@ import {
   getVatExemptionSentence,
   getVatExemptionType
 } from "@/lib/invoice-tax";
-import { toNumber } from "@/lib/utils";
+import { escapeHtml, toNumber } from "@/lib/utils";
 import type {
   BankAccount,
   BusinessCountry,
@@ -662,7 +662,7 @@ export async function duplicateInvoice(formData: FormData): Promise<ActionResult
 }
 
 export async function recordInvoicePayment(formData: FormData): Promise<ActionResult> {
-  const { supabase, user, activeBuchhaltung, settings, writeError } = await getInvoiceContext(true);
+  const { supabase, user, activeBuchhaltung, writeError } = await getInvoiceContext(true);
   if (writeError) return { error: writeError };
   if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewählt." };
   const invoiceId = String(formData.get("invoice_id") ?? "");
@@ -678,7 +678,6 @@ export async function recordInvoicePayment(formData: FormData): Promise<ActionRe
 
   const paymentDate = String(formData.get("payment_date") ?? "");
   const amount = toNumber(formData.get("amount"), 0);
-  const fee = toNumber(formData.get("fee"), 0);
   const currency = String(formData.get("currency") ?? invoice.currency) as CurrencyCode;
   const exchangeRate = toNumber(formData.get("exchange_rate"), 1);
   const exchangeRateSource = "manuell";
@@ -687,12 +686,6 @@ export async function recordInvoicePayment(formData: FormData): Promise<ActionRe
     return { error: "Zahlungen können erst für versendete Rechnungen erfasst werden." };
   }
 
-  const amountReporting = convertToReportingCurrency(
-    amount,
-    currency,
-    activeBuchhaltung.reporting_currency,
-    exchangeRate
-  );
   const invoiceAmountOriginal = fromCents(invoice.gross_total_cents);
   const invoiceAmountReporting = convertToReportingCurrency(
     invoiceAmountOriginal,
@@ -1021,7 +1014,7 @@ export async function sendInvoiceEmail(formData: FormData): Promise<ActionResult
       from,
       to,
       subject,
-      html: `<p>${message.replaceAll("\n", "<br />")}</p><p>Die Rechnung ist in der App als PDF abrufbar.</p>`
+      html: `<p>${escapeHtml(message).replaceAll("\n", "<br />")}</p><p>Die Rechnung ist in der App als PDF abrufbar.</p>`
     })
   });
 

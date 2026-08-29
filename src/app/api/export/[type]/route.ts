@@ -18,10 +18,14 @@ function toCsv(rows: Record<string, unknown>[]) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { type: string } }
+  { params }: { params: Promise<{ type: string }> }
 ) {
+  const { type } = await params;
   const { searchParams } = new URL(request.url);
-  const year = Number(searchParams.get("year") ?? new Date().getFullYear());
+  const requestedYear = Number(searchParams.get("year") ?? new Date().getFullYear());
+  const year = Number.isInteger(requestedYear) && requestedYear >= 2020 && requestedYear <= 2100
+    ? requestedYear
+    : new Date().getFullYear();
   const data = await getModuleData(year);
   const buchhaltung = data.activeBuchhaltung;
   const receiptCount = data.expenses.filter((expense) => expense.receipts?.length).length;
@@ -77,7 +81,7 @@ export async function GET(
     }))
   };
 
-  const rows = map[params.type];
+  const rows = map[type];
   if (!rows) {
     return NextResponse.json({ error: "Unbekannter Exporttyp." }, { status: 404 });
   }
@@ -85,7 +89,7 @@ export async function GET(
   return new NextResponse(toCsv(rows), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${params.type}-${year}.csv"`
+      "Content-Disposition": `attachment; filename="${type}-${year}.csv"`
     }
   });
 }

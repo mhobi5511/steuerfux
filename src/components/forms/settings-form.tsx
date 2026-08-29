@@ -14,7 +14,9 @@ import { businessCountryOptions } from "@/lib/constants";
 import type { BusinessCountry, CurrencyCode, TaxMode, ThemeMode } from "@/lib/db-types";
 
 export function SettingsForm({
-  settings
+  settings,
+  activeBuchhaltungId,
+  destructiveResetEnabled
 }: {
   settings: {
     business_owner_name?: string | null;
@@ -29,6 +31,8 @@ export function SettingsForm({
     default_tax_mode?: TaxMode;
     steuerberater_view?: boolean;
   } | null;
+  activeBuchhaltungId: string | null;
+  destructiveResetEnabled: boolean;
 }) {
   const router = useRouter();
   const { themeMode, setThemeMode } = useTheme();
@@ -175,7 +179,9 @@ export function SettingsForm({
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-slate-950">Daten loeschen</h2>
           <p className="text-sm leading-6 text-slate-600">
-            Waehle, ob nur die aktuelle Buchhaltung oder alle Buchhaltungen geloescht werden.
+            {destructiveResetEnabled
+              ? "Löschen ist administrativ aktiviert und erfordert eine exakte Texteingabe."
+              : "Zum Schutz der Produktionsdaten ist Löschen in dieser Umgebung deaktiviert."}
           </p>
         </div>
         <div className="flex justify-start">
@@ -183,6 +189,7 @@ export function SettingsForm({
             type="button"
             variant="danger"
             onClick={() => setShowResetDialog(true)}
+            disabled={!destructiveResetEnabled}
             className="w-full sm:w-auto"
           >
             Daten loeschen
@@ -220,7 +227,14 @@ export function SettingsForm({
                   startResetTransition(async () => {
                     setError(null);
                     setSuccess(null);
-                    const result = await resetCurrentBuchhaltungData();
+                    const confirmation = prompt(
+                      "Zum Löschen exakt eingeben: AKTUELLE BUCHHALTUNG LOESCHEN"
+                    );
+                    if (!confirmation || !activeBuchhaltungId) return;
+                    const formData = new FormData();
+                    formData.set("confirmation", confirmation);
+                    formData.set("buchhaltung_id", activeBuchhaltungId);
+                    const result = await resetCurrentBuchhaltungData(formData);
 
                     if (result.error) {
                       setError(result.error);
@@ -241,11 +255,16 @@ export function SettingsForm({
                 disabled={resetPending}
                 className="w-full sm:w-auto"
                 onClick={() => {
-                  if (!confirm("Alle Buchhaltungen und Daten wirklich loeschen?")) return;
+                  const confirmation = prompt(
+                    "Zum Löschen exakt eingeben: ALLE BUCHHALTUNGEN LOESCHEN"
+                  );
+                  if (!confirmation) return;
                   startResetTransition(async () => {
                     setError(null);
                     setSuccess(null);
-                    const result = await resetAllUserData();
+                    const formData = new FormData();
+                    formData.set("confirmation", confirmation);
+                    const result = await resetAllUserData(formData);
 
                     if (result.error) {
                       setError(result.error);

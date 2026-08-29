@@ -5,8 +5,9 @@ import { getInvoiceModuleData } from "@/lib/invoice-data";
 export default async function InvoicesPage({
   searchParams
 }: {
-  searchParams?: { edit?: string; neu?: string; filter?: string };
+  searchParams?: Promise<{ edit?: string; neu?: string; filter?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const data = await getInvoiceModuleData();
 
   return (
@@ -21,9 +22,9 @@ export default async function InvoicesPage({
         invoices={data.invoices}
         invoiceSettings={data.invoiceSettings}
         bankAccounts={data.bankAccounts}
-        editId={searchParams?.edit ?? undefined}
-        create={searchParams?.neu === "1"}
-        filter={searchParams?.filter ?? "Alle"}
+        editId={resolvedSearchParams?.edit ?? undefined}
+        create={resolvedSearchParams?.neu === "1"}
+        filter={resolvedSearchParams?.filter ?? "Alle"}
       />
     </div>
   );

@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getDepreciationSuggestion } from "@/lib/depreciation";
 import type { BusinessCountry, CurrencyCode, ReportingCurrency, TaxMode } from "@/lib/db-types";
+import { toLocalDateInputValue } from "@/lib/utils";
 
 export function ExpenseForm({
   fallbackRate,
@@ -139,7 +140,26 @@ export function ExpenseForm({
         className="grid gap-4 lg:grid-cols-2"
       >
         <Field label="Zahlungsdatum">
-          <Input name="payment_date" type="date" required />
+          <Input name="payment_date" type="date" required defaultValue={toLocalDateInputValue()} />
+        </Field>
+        <Field label="Beschreibung">
+          <Input name="description" required placeholder="z. B. Parkticket Pilatus Arena" />
+        </Field>
+        <Field label="Kategorie">
+          <Input
+            name="category"
+            placeholder="z. B. Technik, Software, Reise"
+            onChange={(event) => setCategory(event.target.value)}
+          />
+        </Field>
+        <Field label="Originalbetrag">
+          <Input
+            name="original_amount"
+            type="number"
+            step="0.01"
+            required
+            onChange={(event) => setAmount(Number(event.target.value))}
+          />
         </Field>
         <Field label="Originalwährung">
           <Select
@@ -151,17 +171,18 @@ export function ExpenseForm({
             <option value="CHF">CHF</option>
           </Select>
         </Field>
-        <Field label="Beschreibung">
-          <Input name="description" required placeholder="z. B. Parkticket Pilatus Arena" />
-        </Field>
-        <Field label="Originalbetrag">
+        <Field label="Beleg" hint="PDF oder Foto direkt auswählen; auf Mobilgeräten kann die Kamera geöffnet werden.">
           <Input
-            name="original_amount"
-            type="number"
-            step="0.01"
-            required
-            onChange={(event) => setAmount(Number(event.target.value))}
+            name="receipt_file"
+            type="file"
+            accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
+            capture="environment"
+            onChange={(event) => setReceiptName(event.target.files?.[0]?.name ?? "")}
           />
+          <input name="receipt_available" type="hidden" value={receiptName ? "true" : "false"} />
+          <p className="mt-1 text-xs text-slate-500">
+            {receiptName ? `Ausgewählt: ${receiptName}` : "Foto / Beleg hochladen"}
+          </p>
         </Field>
 
         {currency !== reportingCurrency ? (
@@ -195,13 +216,6 @@ export function ExpenseForm({
             Mehr Optionen
           </summary>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <Field label="Kategorie optional">
-              <Input
-                name="category"
-                placeholder="z. B. Technik, Software, Reisen"
-                onChange={(event) => setCategory(event.target.value)}
-              />
-            </Field>
             <Field label="Steuerlich absetzbar?">
               <Select
                 name="deductible"
@@ -223,19 +237,6 @@ export function ExpenseForm({
                 defaultValue={100}
                 onChange={(event) => setDeductiblePercentage(Number(event.target.value))}
               />
-            </Field>
-            <Field label="Beleg">
-              <Input
-                name="receipt_file"
-                type="file"
-                accept="application/pdf,image/jpeg,image/png,image/heic,.heic"
-                capture="environment"
-                onChange={(event) => setReceiptName(event.target.files?.[0]?.name ?? "")}
-              />
-              <input name="receipt_available" type="hidden" value={receiptName ? "true" : "false"} />
-              <p className="mt-1 text-xs text-slate-500">
-                {receiptName ? `Ausgewählt: ${receiptName}` : "Foto / Beleg hochladen"}
-              </p>
             </Field>
             <Field label="Kann an Kunden weiterberechnet werden?">
               <Select

@@ -1,6 +1,6 @@
 import { calculatePerDiemForDay } from "@/lib/per-diem";
 import { roundMoney } from "@/lib/currency";
-import type { BusinessCountry, CurrencyCode, PerDiemBreakdownRow, ReportingCurrency, TripPurpose } from "@/lib/db-types";
+import type { BusinessCountry, PerDiemBreakdownRow, TripPurpose } from "@/lib/db-types";
 
 export type EditableTripStop = {
   id: string;
@@ -35,9 +35,14 @@ export function calculateDrivingDeduction(totalKm: number) {
 
 export function calculateTripTotals(segments: EditableTripSegment[]) {
   const totalKm = segments.reduce((sum, segment) => sum + (segment.kilometers || 0), 0);
+  const businessKm = segments.reduce(
+    (sum, segment) => sum + (segment.is_business === false ? 0 : segment.kilometers || 0),
+    0
+  );
   return {
     totalKm: roundMoney(totalKm),
-    drivingDeduction: calculateDrivingDeduction(totalKm)
+    businessKm: roundMoney(businessKm),
+    drivingDeduction: calculateDrivingDeduction(businessKm)
   };
 }
 

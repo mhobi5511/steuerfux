@@ -6,8 +6,10 @@ import { getSettings } from "@/lib/data";
 import { getInvoiceModuleData } from "@/lib/invoice-data";
 
 export default async function SettingsPage() {
-  const settings = await getSettings();
-  const invoiceData = await getInvoiceModuleData();
+  const [settings, invoiceData] = await Promise.all([
+    getSettings(),
+    getInvoiceModuleData({ includeInvoices: false })
+  ]);
 
   return (
     <div className="space-y-6">
@@ -19,7 +21,11 @@ export default async function SettingsPage() {
             : null
         }
       />
-      <SettingsForm settings={settings} />
+      <SettingsForm
+        settings={settings}
+        activeBuchhaltungId={invoiceData.activeBuchhaltung?.id ?? null}
+        destructiveResetEnabled={process.env.ENABLE_DESTRUCTIVE_DATA_RESET === "true"}
+      />
       <InvoiceSettingsPanel
         activeBuchhaltung={invoiceData.activeBuchhaltung}
         invoiceSettings={invoiceData.invoiceSettings}

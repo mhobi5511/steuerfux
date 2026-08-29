@@ -41,9 +41,12 @@ export function findPerDiemRate(country: string) {
 export function calculatePerDiemForDay(day: PerDiemDay) {
   const rate = findPerDiemRate(day.countryAtMidnight);
   const fullDayRate = rate.fullDayAmount;
+  const isSameDayTrip = day.isArrivalDay && day.isDepartureDay;
 
   let base = 0;
-  if (day.isArrivalDay || day.isDepartureDay) {
+  if (isSameDayTrip) {
+    base = day.absenceHours > 8 ? rate.arrivalDepartureAmount : 0;
+  } else if (day.isArrivalDay || day.isDepartureDay) {
     base = rate.arrivalDepartureAmount;
   } else if (day.absenceHours >= 24) {
     base = rate.fullDayAmount;

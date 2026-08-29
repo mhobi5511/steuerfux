@@ -24,8 +24,7 @@ import {
 } from "@/lib/invoice-utils";
 import {
   getVatExemptionLabel,
-  getVatExemptionSentence,
-  getVatExemptionSettingsLabel
+  getVatExemptionSentence
 } from "@/lib/invoice-tax";
 import type {
   BankAccount,
@@ -136,7 +135,6 @@ export function InvoiceModule({
   const selectedBankAccount = bankAccounts.find((bank) => bank.id === bankAccountId) ?? null;
   const customerFieldKey = selectedCustomerId || editing?.id || "new";
   const vatExemptionLabel = getVatExemptionLabel(activeBuchhaltung?.country ?? "Deutschland");
-  const vatExemptionSettingsLabel = getVatExemptionSettingsLabel(activeBuchhaltung?.country ?? "Deutschland");
   const vatExemptionSentence = getVatExemptionSentence(activeBuchhaltung?.country ?? "Deutschland");
   const dueDate = calculateDueDate(issueDate, paymentTerm, customDueDate);
   const totals = useMemo(() => {

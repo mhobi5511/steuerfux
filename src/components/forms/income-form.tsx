@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { CurrencyCode, Income, ReportingCurrency, TaxMode } from "@/lib/db-types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, toLocalDateInputValue } from "@/lib/utils";
 
 export function IncomeForm({
   fallbackRate,
@@ -118,7 +118,7 @@ export function IncomeForm({
             name="invoice_date"
             type="date"
             required
-            defaultValue={initialValues?.invoice_date ?? ""}
+            defaultValue={initialValues?.invoice_date ?? toLocalDateInputValue()}
           />
         </Field>
         <Field label="Zahlungsdatum optional">

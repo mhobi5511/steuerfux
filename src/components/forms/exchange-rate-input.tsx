@@ -32,16 +32,27 @@ export function ExchangeRateInput({
     const date = (input?.value ?? "").split("T")[0] ?? "";
 
     startTransition(async () => {
-      const response = await fetch(`/api/exchange-rate?date=${date}&fallback=${fallbackRate}`);
-      const data = (await response.json()) as {
-        rate: number;
-        warning?: string;
-        manualRequired: boolean;
-      };
+      try {
+        const params = new URLSearchParams({ date, fallback: String(fallbackRate) });
+        const response = await fetch(`/api/exchange-rate?${params.toString()}`);
+        const data = (await response.json()) as {
+          rate?: number;
+          warning?: string;
+          error?: string;
+          manualRequired?: boolean;
+        };
 
-      setRate(data.rate || fallbackRate || 1);
-      setManual(Boolean(data.manualRequired));
-      setWarning(data.warning ?? null);
+        if (!response.ok || typeof data.rate !== "number") {
+          setWarning(data.error ?? "Wechselkurs konnte nicht geladen werden.");
+          return;
+        }
+
+        setRate(data.rate || fallbackRate || 1);
+        setManual(Boolean(data.manualRequired));
+        setWarning(data.warning ?? null);
+      } catch {
+        setWarning("Wechselkurs konnte nicht geladen werden. Die Eingabe bleibt erhalten.");
+      }
     });
   }
 
