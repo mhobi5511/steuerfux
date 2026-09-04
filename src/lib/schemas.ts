@@ -103,3 +103,13 @@ export const settingsSchema = z.object({
   default_tax_mode: taxModeSchema,
   steuerberater_view: z.boolean().default(false)
 });
+
+export const mileageYearSettingsSchema = z.object({
+  year: z.coerce
+    .number()
+    .int("Das Abrechnungsjahr muss eine ganze Zahl sein.")
+    .min(2020, "Das Abrechnungsjahr muss zwischen 2020 und 2100 liegen.")
+    .max(2100, "Das Abrechnungsjahr muss zwischen 2020 und 2100 liegen."),
+  mileage_rate: z.coerce.number().nonnegative("Der Kilometersatz darf nicht negativ sein."),
+  mileage_currency: currencySchema
+});

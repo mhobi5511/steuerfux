@@ -11,7 +11,7 @@ import {
 import { DeleteButton } from "@/components/records/delete-button";
 import { SimpleTable } from "@/components/records/simple-table";
 import { Button } from "@/components/ui/button";
-import { getModuleData } from "@/lib/data";
+import { getMileageYearSettings, getModuleData } from "@/lib/data";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 export default async function TripsPage({
@@ -20,10 +20,11 @@ export default async function TripsPage({
   searchParams?: Promise<{ edit?: string; month?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { trips, reimbursements, settings, activeBuchhaltung } = await getModuleData(undefined, [
-    "trips",
-    "reimbursements"
+  const [moduleData, mileageSettings] = await Promise.all([
+    getModuleData(undefined, ["trips", "reimbursements"]),
+    getMileageYearSettings()
   ]);
+  const { trips, reimbursements, settings, activeBuchhaltung, businessYear } = moduleData;
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const initialTrip = trips.find((trip) => trip.id === resolvedSearchParams?.edit) ?? null;
@@ -44,12 +45,15 @@ export default async function TripsPage({
       />
       {readOnly ? <ReadOnlyNotice /> : (
       <TripForm
-        key={initialTrip?.id ?? "new"}
+        key={`${activeBuchhaltung?.id ?? "no-book"}-${initialTrip?.id ?? "new"}`}
         homeAddress={settings?.default_home_address}
         businessCountry={settings?.business_country ?? "Deutschland"}
         reportingCurrency={reportingCurrency}
         defaultCurrency={settings?.default_currency ?? reportingCurrency}
         fallbackRate={settings?.default_manual_chf_eur_rate ?? 1}
+        activeBuchhaltung={activeBuchhaltung}
+        mileageSettings={mileageSettings}
+        defaultYear={businessYear}
         initialTrip={initialTrip}
         initialReimbursement={initialReimbursement}
       />

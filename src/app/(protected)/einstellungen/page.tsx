@@ -1,14 +1,16 @@
 import { SettingsForm } from "@/components/forms/settings-form";
+import { MileageSettingsForm } from "@/components/forms/mileage-settings-form";
 import { InvoiceSettingsPanel } from "@/components/invoices/invoice-settings-panel";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
-import { getSettings } from "@/lib/data";
+import { getMileageYearSettings, getSettings } from "@/lib/data";
 import { getInvoiceModuleData } from "@/lib/invoice-data";
 
 export default async function SettingsPage() {
-  const [settings, invoiceData] = await Promise.all([
+  const [settings, invoiceData, mileageSettings] = await Promise.all([
     getSettings(),
-    getInvoiceModuleData({ includeInvoices: false })
+    getInvoiceModuleData({ includeInvoices: false }),
+    getMileageYearSettings()
   ]);
 
   return (
@@ -25,6 +27,12 @@ export default async function SettingsPage() {
         settings={settings}
         activeBuchhaltungId={invoiceData.activeBuchhaltung?.id ?? null}
         destructiveResetEnabled={process.env.ENABLE_DESTRUCTIVE_DATA_RESET === "true"}
+      />
+      <MileageSettingsForm
+        key={invoiceData.activeBuchhaltung?.id ?? "no-book"}
+        activeBuchhaltung={invoiceData.activeBuchhaltung}
+        settings={mileageSettings}
+        initialYear={settings?.business_year ?? new Date().getFullYear()}
       />
       <InvoiceSettingsPanel
         activeBuchhaltung={invoiceData.activeBuchhaltung}

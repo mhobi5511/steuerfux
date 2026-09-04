@@ -12,6 +12,7 @@ import {
   applyBuchhaltungSettings,
   getSelectedBuchhaltung
 } from "@/lib/buchhaltungen";
+import type { MileageYearSetting } from "@/lib/db-types";
 
 export type ModuleDataset =
   | "incomes"
@@ -64,6 +65,24 @@ export async function getBuchhaltungContext() {
   const { buchhaltungen, activeBuchhaltung } = await getAccountingContext();
   return { buchhaltungen, activeBuchhaltung };
 }
+
+export const getMileageYearSettings = cache(async () => {
+  const { supabase, user, activeBuchhaltung } = await getAccountingContext();
+  if (!activeBuchhaltung) return [] as MileageYearSetting[];
+
+  const { data, error } = await supabase
+    .from("buchhaltung_year_settings")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .order("year", { ascending: false });
+
+  if (error) {
+    console.error("getMileageYearSettings error:", error);
+    return [] as MileageYearSetting[];
+  }
+  return (data ?? []) as MileageYearSetting[];
+});
 
 export async function getModuleData(year?: number, datasets: ModuleDataset[] = allModuleDatasets) {
   const {
@@ -252,7 +271,14 @@ export async function getDashboardData(year?: number) {
         .reduce((sum, row) => sum + (row.amount_reporting ?? 0), 0) +
       data.trips
         .filter((row) => new Date(row.start_at).getMonth() + 1 === month)
-        .reduce((sum, row) => sum + (row.total_per_diem_reporting ?? 0), 0) +
+        .reduce(
+          (sum, row) =>
+            sum +
+            (row.driving_deduction_reporting ?? 0) +
+            (row.total_travel_expenses_reporting ?? 0) +
+            (row.total_per_diem_reporting ?? 0),
+          0
+        ) +
       data.depreciations
         .filter(
           (row) =>

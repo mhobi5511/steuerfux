@@ -14,14 +14,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { homeAddressDefault, tripPurposeOptions } from "@/lib/constants";
 import { basePerDiemRates } from "@/lib/per-diem";
 import type {
+  Buchhaltung,
   BusinessCountry,
   CurrencyCode,
+  MileageYearSetting,
   Reimbursement,
   ReportingCurrency,
   Trip,
   TripPurpose
 } from "@/lib/db-types";
-import { buildPerDiemBreakdown } from "@/lib/trips";
+import { buildPerDiemBreakdown, calculateTripTotals } from "@/lib/trips";
+import {
+  getMileageConfiguration,
+  getYearFromDate,
+  preferTripMileageSnapshot
+} from "@/lib/mileage";
 import { formatCurrency, toDateTimeLocalValue } from "@/lib/utils";
 
 type Stop = {
@@ -102,6 +109,9 @@ export function TripForm({
   reportingCurrency,
   defaultCurrency,
   fallbackRate,
+  activeBuchhaltung,
+  mileageSettings,
+  defaultYear,
   initialTrip = null,
   initialReimbursement = null
 }: {
@@ -110,6 +120,9 @@ export function TripForm({
   reportingCurrency: ReportingCurrency;
   defaultCurrency: CurrencyCode;
   fallbackRate: number;
+  activeBuchhaltung: Buchhaltung | null;
+  mileageSettings: MileageYearSetting[];
+  defaultYear: number;
   initialTrip?: Trip | null;
   initialReimbursement?: Reimbursement | null;
 }) {
@@ -120,6 +133,7 @@ export function TripForm({
   const [startAt, setStartAt] = useState(toDateTimeLocalValue(initialTrip?.start_at));
   const [endAt, setEndAt] = useState(toDateTimeLocalValue(initialTrip?.end_at));
   const [stops, setStops] = useState<Stop[]>(() => mapTripToStops(initialTrip));
+  const [expandedStopIds, setExpandedStopIds] = useState<Set<string>>(() => new Set());
   const [startPoint, setStartPoint] = useState(initialTrip?.start_point ?? homeAddress);
   const [endPoint, setEndPoint] = useState(initialTrip?.end_point ?? homeAddress);
   const [reimbursableToClient, setReimbursableToClient] = useState(
@@ -142,10 +156,44 @@ export function TripForm({
 
   const isEditing = Boolean(initialTrip?.id);
 
+  const mileagePreview = useMemo(() => {
+    if (!activeBuchhaltung) return null;
+    const year = getYearFromDate(startAt) ?? defaultYear;
+    const configured = getMileageConfiguration({
+      buchhaltung: activeBuchhaltung,
+      year,
+      settings: mileageSettings
+    });
+    const oldBusinessKm = (initialTrip?.trip_segments ?? []).reduce(
+      (sum, segment) => sum + (segment.is_business ? segment.kilometers : 0),
+      0
+    );
+    const legacyRate =
+      initialTrip && initialTrip.applied_mileage_rate == null && oldBusinessKm > 0
+        ? initialTrip.driving_deduction_reporting / oldBusinessKm
+        : undefined;
+
+    return preferTripMileageSnapshot({
+      configured,
+      appliedRate: initialTrip?.applied_mileage_rate ?? legacyRate,
+      appliedCurrency:
+        initialTrip?.applied_mileage_currency ??
+        (legacyRate === undefined ? undefined : initialTrip?.reporting_currency)
+    });
+  }, [activeBuchhaltung, defaultYear, initialTrip, mileageSettings, startAt]);
+  const mileageTotals = useMemo(
+    () => calculateTripTotals(segments, mileagePreview?.rate ?? 0),
+    [mileagePreview?.rate, segments]
+  );
+  const startYear = getYearFromDate(startAt);
+  const endYear = getYearFromDate(endAt);
+  const crossesYear = Boolean(startYear && endYear && startYear !== endYear);
+
   useEffect(() => {
     setStartAt(toDateTimeLocalValue(initialTrip?.start_at));
     setEndAt(toDateTimeLocalValue(initialTrip?.end_at));
     setStops(mapTripToStops(initialTrip));
+    setExpandedStopIds(new Set());
     setStartPoint(initialTrip?.start_point ?? homeAddress);
     setEndPoint(initialTrip?.end_point ?? homeAddress);
     setReimbursableToClient(initialTrip?.reimbursable_to_client ? "true" : "false");
@@ -172,10 +220,11 @@ export function TripForm({
   }
 
   function addStop() {
+    const id = crypto.randomUUID();
     const nextStops = [
       ...stops,
       {
-        id: crypto.randomUUID(),
+        id,
         location: "",
         country: "",
         arrival_at: "",
@@ -189,12 +238,18 @@ export function TripForm({
     ];
 
     setStops(nextStops);
+    setExpandedStopIds((current) => new Set(current).add(id));
     rebuildSegments(startPoint, endPoint, nextStops);
   }
 
   function removeStop(id: string) {
     const nextStops = stops.filter((stop) => stop.id !== id);
     setStops(nextStops);
+    setExpandedStopIds((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
     rebuildSegments(startPoint, endPoint, nextStops);
   }
 
@@ -216,6 +271,7 @@ export function TripForm({
     setStartAt("");
     setEndAt("");
     setStops([]);
+    setExpandedStopIds(new Set());
     setStartPoint(homeAddress);
     setEndPoint(homeAddress);
     setReimbursableToClient("false");
@@ -299,7 +355,11 @@ export function TripForm({
       >
         {isEditing ? <input name="id" type="hidden" value={initialTrip?.id} /> : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Basisdaten
+          </h3>
+          <div className="grid gap-4 lg:grid-cols-2">
           <Field label="Reisebezeichnung">
             <Input
               name="title"
@@ -315,7 +375,7 @@ export function TripForm({
               defaultValue={initialTrip?.business_reason ?? ""}
             />
           </Field>
-          <div className="hidden">
+          <div>
           <Field label="Startpunkt">
             <Input
               name="start_point"
@@ -327,7 +387,7 @@ export function TripForm({
             />
           </Field>
           </div>
-          <div className="hidden">
+          <div>
           <Field label="Endpunkt">
             <Input
               name="end_point"
@@ -357,12 +417,15 @@ export function TripForm({
               onChange={(event) => setEndAt(event.target.value)}
             />
           </Field>
+          </div>
         </div>
 
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="font-medium text-slate-950">Zwischenstopps</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Route &amp; Zwischenstopps
+              </h3>
               <p className="hidden text-sm text-slate-600">
                 Erfasse pro Stopp Land, Zeitraum, Zweck und bereitgestellte Mahlzeiten.
               </p>
@@ -379,14 +442,30 @@ export function TripForm({
               </div>
             ) : null}
             {stops.map((stop, index) => (
-              <Card key={stop.id} className="space-y-4 bg-slate-50 dark:bg-slate-900">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-950">Stopp {index + 1}</p>
+              <details
+                key={stop.id}
+                open={expandedStopIds.has(stop.id)}
+                onToggle={(event) => {
+                  const isOpen = event.currentTarget.open;
+                  setExpandedStopIds((current) => {
+                    const next = new Set(current);
+                    if (isOpen) next.add(stop.id);
+                    else next.delete(stop.id);
+                    return next;
+                  });
+                }}
+                className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900"
+              >
+                <summary className="cursor-pointer text-sm font-medium text-slate-950">
+                  Stopp {index + 1}: {stop.location || "Ort fehlt"}
+                  {stop.country ? ` · ${stop.country}` : ""} · {stop.purpose}
+                </summary>
+                <div className="mt-3 flex justify-end">
                   <Button type="button" variant="ghost" onClick={() => removeStop(stop.id)}>
                     Entfernen
                   </Button>
                 </div>
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="mt-3 grid gap-4 lg:grid-cols-2">
                   <Field label={`Ort Stopp ${index + 1}`}>
                     <Input
                       value={stop.location}
@@ -511,14 +590,16 @@ export function TripForm({
                     </div>
                   </details>
                 </div>
-              </Card>
+              </details>
             ))}
           </div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-slate-950">Kilometer</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Kilometer
+            </h3>
             <p className="hidden text-sm text-slate-600">
               Der Rückweg zum Endpunkt bleibt immer sichtbar und wird separat erfasst.
             </p>
@@ -537,6 +618,7 @@ export function TripForm({
                 </div>
                 <Input
                   type="number"
+                  min="0"
                   step="0.1"
                   value={segment.kilometers}
                   onChange={(event) => {
@@ -562,6 +644,49 @@ export function TripForm({
             ))}
           </div>
           {distanceError ? <p className="text-sm text-rose-600">{distanceError}</p> : null}
+          <div className="grid gap-3 rounded-2xl border border-line bg-white p-4 sm:grid-cols-3 dark:bg-slate-950">
+            <div>
+              <p className="text-xs text-slate-500">Geschäftliche Strecke</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
+                {mileageTotals.businessKm.toFixed(1)} km
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Kilometersatz</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
+                {mileagePreview
+                  ? `${mileagePreview.currency} ${mileagePreview.rate.toFixed(2)} / km`
+                  : "Nicht konfiguriert"}
+              </p>
+              <Link
+                href="/einstellungen#kilometersatz"
+                className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+              >
+                Kilometersatz ändern
+              </Link>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Abziehbarer Fahrtaufwand</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
+                {formatCurrency(
+                  mileageTotals.drivingDeduction,
+                  mileagePreview?.currency ?? reportingCurrency
+                )}
+              </p>
+            </div>
+          </div>
+          {!mileagePreview ? (
+            <p className="text-sm text-amber-700">
+              Für dieses Abrechnungsjahr fehlt ein gültiger Kilometersatz. Bitte hinterlege ihn
+              vor dem Speichern in den Einstellungen.
+            </p>
+          ) : null}
+          {crossesYear ? (
+            <p className="text-sm text-amber-700">
+              Die Reise überschreitet den Jahreswechsel. Bitte als zwei Reisen erfassen, damit
+              die jährlichen Kilometersätze korrekt angewendet werden.
+            </p>
+          ) : null}
         </div>
 
         <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
@@ -616,7 +741,7 @@ export function TripForm({
 
         <details className="rounded-2xl border border-line bg-slate-50 p-4 dark:bg-slate-900">
           <summary className="cursor-pointer text-sm font-medium text-slate-900">
-            Kundenweiterberechnung
+            Weitere Optionen
           </summary>
           <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
             <Field label="Kann an Kunden weiterberechnet werden?">
@@ -660,16 +785,17 @@ export function TripForm({
                 label="Wechselkurs für weiterberechenbare Kosten"
               />
             </div>
+            <div className="lg:col-span-2">
+              <Field label="Notiz">
+                <Textarea
+                  name="note"
+                  placeholder="Optional: Hinweise zu privatem Anteil, Reiseverlauf oder offenen Belegen."
+                  defaultValue={initialTrip?.note ?? ""}
+                />
+              </Field>
+            </div>
           </div>
         </details>
-
-        <Field label="Notiz">
-          <Textarea
-            name="note"
-            placeholder="Optional: Hinweise zu privatem Anteil, Reiseverlauf oder offenen Belegen."
-            defaultValue={initialTrip?.note ?? ""}
-          />
-        </Field>
 
         <input name="stops_json" type="hidden" value={JSON.stringify(stops)} />
         <input name="segments_json" type="hidden" value={JSON.stringify(segments)} />
@@ -682,7 +808,11 @@ export function TripForm({
               <Button type="button" variant="secondary" className="w-full sm:w-auto">Bearbeitung verlassen</Button>
             </Link>
           ) : null}
-          <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+          <Button
+            type="submit"
+            disabled={pending || !mileagePreview || crossesYear}
+            className="w-full sm:w-auto"
+          >
             {pending ? "Speichern..." : isEditing ? "Reise aktualisieren" : "Reise speichern"}
           </Button>
         </div>

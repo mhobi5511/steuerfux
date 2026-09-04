@@ -42,6 +42,13 @@ export type Buchhaltung = BaseRow & {
   status: BuchhaltungStatus;
 };
 
+export type MileageYearSetting = BaseRow & {
+  buchhaltung_id: string;
+  year: number;
+  mileage_rate: number;
+  mileage_currency: ReportingCurrency;
+};
+
 export type Receipt = {
   id: string;
   user_id: string;
@@ -278,6 +285,8 @@ export type Trip = BaseRow & {
   total_km: number;
   reporting_currency: ReportingCurrency;
   driving_deduction_reporting: number;
+  applied_mileage_rate: number | null;
+  applied_mileage_currency: ReportingCurrency | null;
   total_travel_expenses_reporting: number;
   total_per_diem_reporting: number;
   deductible_total_reporting: number;

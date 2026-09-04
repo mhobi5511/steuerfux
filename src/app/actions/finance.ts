@@ -21,13 +21,26 @@ import {
   depreciationSchema,
   expenseSchema,
   incomeSchema,
+  mileageYearSettingsSchema,
   reimbursementSchema,
   settingsSchema
 } from "@/lib/schemas";
 import { isIncomePaid, normalizeIncomeStatus } from "@/lib/income-status";
 import { buildPerDiemBreakdown, calculateTripTotals, validateTripChronology } from "@/lib/trips";
+import {
+  getMileageConfiguration,
+  getYearFromDate,
+  preferTripMileageSnapshot
+} from "@/lib/mileage";
 import { toBoolean, toNumber } from "@/lib/utils";
-import type { AppSettings, BusinessCountry, CurrencyCode, ReportingCurrency } from "@/lib/db-types";
+import type {
+  AppSettings,
+  Buchhaltung,
+  BusinessCountry,
+  CurrencyCode,
+  MileageYearSetting,
+  ReportingCurrency
+} from "@/lib/db-types";
 
 type ActionResult = { success?: string; error?: string };
 
@@ -131,6 +144,31 @@ function getReportingContext(settings: AppSettings | null) {
     businessCountry,
     reportingCurrency,
     fallbackRate
+  };
+}
+
+async function loadMileageConfiguration(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  buchhaltung: Buchhaltung,
+  year: number
+) {
+  const { data, error } = await supabase
+    .from("buchhaltung_year_settings")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("buchhaltung_id", buchhaltung.id)
+    .eq("year", year)
+    .maybeSingle();
+
+  if (error) return { configuration: null, error };
+  return {
+    configuration: getMileageConfiguration({
+      buchhaltung,
+      year,
+      settings: data ? ([data] as MileageYearSetting[]) : []
+    }),
+    error: null
   };
 }
 
@@ -999,6 +1037,45 @@ export async function saveSettings(formData: FormData): Promise<ActionResult> {
   return { success: "Einstellungen erfolgreich gespeichert." };
 }
 
+export async function saveMileageYearSettings(formData: FormData): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung auswählen." };
+
+  const parsed = mileageYearSettingsSchema.safeParse({
+    year: formData.get("year"),
+    mileage_rate: formData.get("mileage_rate"),
+    mileage_currency: formData.get("mileage_currency")
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Kilometersatz ist ungültig." };
+  }
+  if (parsed.data.mileage_currency !== activeBuchhaltung.reporting_currency) {
+    return {
+      error: `Der Kilometersatz dieser Buchhaltung muss in ${activeBuchhaltung.reporting_currency} geführt werden.`
+    };
+  }
+
+  const { error } = await supabase.from("buchhaltung_year_settings").upsert(
+    {
+      user_id: user.id,
+      buchhaltung_id: activeBuchhaltung.id,
+      year: parsed.data.year,
+      mileage_rate: parsed.data.mileage_rate,
+      mileage_currency: activeBuchhaltung.reporting_currency
+    },
+    { onConflict: "buchhaltung_id,year" }
+  );
+  if (error) {
+    console.error("saveMileageYearSettings error:", error);
+    return { error: "Der Kilometersatz konnte nicht gespeichert werden." };
+  }
+
+  revalidatePath("/einstellungen");
+  revalidatePath("/fahrten-reisen");
+  return { success: "Kilometersatz für das Abrechnungsjahr gespeichert." };
+}
+
 export async function saveEstimatedTaxRate(formData: FormData): Promise<ActionResult> {
   const { supabase, user } = await requireUser();
   const estimatedTaxRate = toNumber(formData.get("estimated_tax_rate"), 0);
@@ -1274,177 +1351,7 @@ export async function resetAllUserData(formData: FormData): Promise<ActionResult
 }
 
 export async function createTrip(formData: FormData): Promise<ActionResult> {
-  const { supabase, user, settings, activeBuchhaltung, writeError } = await getActionContext(true);
-  if (writeError) return { error: writeError };
-  const { businessCountry, reportingCurrency } = getReportingContext(settings);
-
-  const rawStops = String(formData.get("stops_json") ?? "[]");
-  const rawSegments = String(formData.get("segments_json") ?? "[]");
-  const startAt = String(formData.get("start_at") ?? "");
-  const endAt = String(formData.get("end_at") ?? "");
-  const startPoint = String(formData.get("start_point") ?? "");
-  const endPoint = String(formData.get("end_point") ?? "");
-  const title = String(formData.get("title") ?? "");
-  const businessReason = String(formData.get("business_reason") ?? "");
-  const note = String(formData.get("note") ?? "");
-  const reimbursableToClient = toBoolean(formData.get("reimbursable_to_client"));
-  const reimbursementAmountOriginal = toNumber(formData.get("reimbursement_amount_original"), 0);
-  const reimbursementCurrency = (String(formData.get("reimbursement_currency") ?? reportingCurrency) ||
-    reportingCurrency) as CurrencyCode;
-  const exchangeRate = toNumber(formData.get("reimbursement_exchange_rate"), 1);
-  const exchangeRateManual = toBoolean(formData.get("reimbursement_exchange_rate_manual"));
-  const exchangeRateSource = exchangeRateManual ? "manuell" : "Frankfurter / ECB";
-
-  let stops: Array<Record<string, unknown>> = [];
-  let segments: Array<Record<string, unknown>> = [];
-  try {
-    stops = JSON.parse(rawStops);
-    segments = JSON.parse(rawSegments);
-  } catch {
-    return { error: "Stopps oder Fahrsegmente konnten nicht gelesen werden." };
-  }
-
-  const chronologyErrors = validateTripChronology(startAt, endAt, stops as never[]);
-  if (chronologyErrors.length > 0) {
-    return { error: chronologyErrors[0] };
-  }
-
-  const totals = calculateTripTotals(
-    segments.map((segment) => ({
-      id: String(segment.id ?? ""),
-      from_label: String(segment.from_label ?? ""),
-      to_label: String(segment.to_label ?? ""),
-      kilometers: toNumber(String(segment.kilometers ?? "0")),
-      is_business: segment.is_business !== false
-    }))
-  );
-  const perDiem = buildPerDiemBreakdown({
-    startAt,
-    endAt,
-    stops: stops as never[],
-    businessCountry
-  });
-  const mixedTrip = (stops as Array<Record<string, unknown>>).some((stop) => stop.purpose === "Privat");
-
-  const { data: tripData, error } = await supabase
-    .from("trips")
-    .insert({
-      user_id: user.id,
-      buchhaltung_id: activeBuchhaltung!.id,
-      title,
-      business_reason: businessReason || title,
-      start_point: startPoint,
-      start_at: startAt,
-      end_point: endPoint,
-      end_at: endAt,
-      note: note || null,
-      total_km: totals.totalKm,
-      reporting_currency: reportingCurrency,
-      driving_deduction_reporting: totals.drivingDeduction,
-      total_travel_expenses_reporting: 0,
-      total_per_diem_reporting: perDiem.total,
-      deductible_total_reporting: roundMoney(totals.drivingDeduction + perDiem.total),
-      mixed_trip_warning: mixedTrip
-        ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prÃ¼fen."
-        : null,
-      per_diem_breakdown: perDiem.breakdown,
-      reimbursable_to_client: reimbursableToClient,
-      reimbursement_id: null
-    })
-    .select("id")
-    .single();
-
-  if (error || !tripData) {
-    console.error("createTrip error:", error);
-    return { error: "Reise konnte nicht gespeichert werden." };
-  }
-
-  if (stops.length) {
-    await supabase.from("trip_stops").insert(
-      stops.map((stop, index) => ({
-        user_id: user.id,
-        buchhaltung_id: activeBuchhaltung!.id,
-        trip_id: tripData.id,
-        sort_order: index + 1,
-        location: String(stop.location ?? ""),
-        country: String(stop.country ?? ""),
-        arrival_at: String(stop.arrival_at ?? ""),
-        departure_at: String(stop.departure_at ?? ""),
-        purpose: String(stop.purpose ?? "GeschÃ¤ftlich"),
-        breakfast_provided: Boolean(stop.breakfast_provided),
-        lunch_provided: Boolean(stop.lunch_provided),
-        dinner_provided: Boolean(stop.dinner_provided),
-        note: stop.note ? String(stop.note) : null
-      }))
-    );
-  }
-
-  if (segments.length) {
-    await supabase.from("trip_segments").insert(
-      segments.map((segment, index) => {
-        const kilometers = toNumber(String(segment.kilometers ?? "0"), 0);
-        return {
-          user_id: user.id,
-          buchhaltung_id: activeBuchhaltung!.id,
-          trip_id: tripData.id,
-          sort_order: index + 1,
-          from_label: String(segment.from_label ?? ""),
-          to_label: String(segment.to_label ?? ""),
-          kilometers,
-          is_business: segment.is_business !== false,
-          deduction_reporting: segment.is_business === false ? 0 : roundMoney(kilometers * 0.3),
-          note: segment.note ? String(segment.note) : null
-        };
-      })
-    );
-  }
-
-  if (reimbursableToClient && reimbursementAmountOriginal > 0) {
-    const amountReporting = convertToReportingCurrency(
-      reimbursementAmountOriginal,
-      reimbursementCurrency,
-      reportingCurrency,
-      exchangeRate
-    );
-    const { data: reimbursement } = await supabase
-      .from("reimbursements")
-      .insert({
-        user_id: user.id,
-        buchhaltung_id: activeBuchhaltung!.id,
-        reimbursement_date: startAt.slice(0, 10),
-        description: `Weiterberechenbare Reisekosten: ${title}`,
-        original_amount: reimbursementAmountOriginal,
-        currency: reimbursementCurrency,
-        tax_mode: "BRUTTO",
-        exchange_rate: exchangeRate,
-        exchange_rate_source: exchangeRateSource,
-        exchange_rate_manual: exchangeRateManual,
-        reporting_currency: reportingCurrency,
-        amount_reporting: amountReporting,
-        context_type: "Reise",
-        linked_record_id: tripData.id,
-        status: "offen",
-        note: null,
-        source_expense_id: null,
-        source_trip_id: tripData.id
-      })
-      .select("id")
-      .single();
-
-    if (reimbursement?.id) {
-      await supabase
-        .from("trips")
-        .update({ reimbursement_id: reimbursement.id })
-        .eq("id", tripData.id)
-        .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung!.id);
-    }
-  }
-
-  revalidatePath("/fahrten-reisen");
-  revalidatePath("/dashboard");
-  revalidatePath("/zuschuesse");
-  return { success: "Reise erfolgreich gespeichert." };
+  return upsertTrip(formData);
 }
 
 export async function upsertTrip(formData: FormData): Promise<ActionResult> {
@@ -1484,15 +1391,134 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
     return { error: chronologyErrors[0] };
   }
 
-  const totals = calculateTripTotals(
-    segments.map((segment) => ({
-      id: String(segment.id ?? ""),
-      from_label: String(segment.from_label ?? ""),
-      to_label: String(segment.to_label ?? ""),
-      kilometers: toNumber(String(segment.kilometers ?? "0")),
-      is_business: segment.is_business !== false
-    }))
+  const startYear = getYearFromDate(startAt);
+  const endYear = getYearFromDate(endAt);
+  if (!startYear || !endYear) {
+    return { error: "Das Reisedatum enthält kein gültiges Abrechnungsjahr." };
+  }
+  if (startYear !== endYear) {
+    return {
+      error:
+        "Diese Reise überschreitet den Jahreswechsel. Bitte erfasse sie als zwei Reisen, damit jeder Kilometersatz eindeutig bleibt."
+    };
+  }
+
+  const normalizedSegments = segments.map((segment) => ({
+    id: String(segment.id ?? ""),
+    from_label: String(segment.from_label ?? ""),
+    to_label: String(segment.to_label ?? ""),
+    kilometers: Number(String(segment.kilometers ?? "0").replace(",", ".")),
+    is_business: segment.is_business !== false
+  }));
+  if (
+    normalizedSegments.some(
+      (segment) => !Number.isFinite(segment.kilometers) || segment.kilometers < 0
+    )
+  ) {
+    return { error: "Kilometer müssen gültige, nicht negative Zahlen sein." };
+  }
+
+  const { data: existingTrip, error: existingTripError } = tripId
+    ? await supabase
+        .from("trips")
+        .select(
+          "applied_mileage_rate, applied_mileage_currency, driving_deduction_reporting, total_travel_expenses_reporting, trip_segments(kilometers, is_business, deduction_reporting, sort_order)"
+        )
+        .eq("id", tripId)
+        .eq("user_id", user.id)
+        .eq("buchhaltung_id", activeBuchhaltung!.id)
+        .maybeSingle()
+    : { data: null, error: null };
+  if (tripId && (existingTripError || !existingTrip)) {
+    console.error("load existing trip mileage snapshot error:", existingTripError);
+    return { error: "Die gespeicherte Fahrt konnte nicht sicher geladen werden." };
+  }
+
+  const mileageResult = await loadMileageConfiguration(
+    supabase,
+    user.id,
+    activeBuchhaltung!,
+    startYear
   );
+  if (mileageResult.error) {
+    console.error("loadMileageConfiguration error:", mileageResult.error);
+    return {
+      error:
+        "Der Kilometersatz konnte nicht sicher geladen werden. Bitte zuerst die Datenbankmigration und danach die Jahreseinstellung prüfen."
+    };
+  }
+
+  const oldSegments = ((existingTrip?.trip_segments ?? []) as Array<{
+    kilometers: number;
+    is_business: boolean;
+    deduction_reporting: number;
+    sort_order: number;
+  }>).sort((left, right) => left.sort_order - right.sort_order);
+  const oldBusinessKm = oldSegments.reduce(
+    (sum, segment) => sum + (segment.is_business ? Number(segment.kilometers) : 0),
+    0
+  );
+  const derivedLegacyRate =
+    existingTrip && oldBusinessKm > 0
+      ? Number(existingTrip.driving_deduction_reporting) / oldBusinessKm
+      : null;
+  const roundedLegacyRate =
+    derivedLegacyRate === null ? null : Math.round(derivedLegacyRate * 10_000) / 10_000;
+  const legacyRateIsReproducible =
+    roundedLegacyRate !== null &&
+    roundMoney(oldBusinessKm * roundedLegacyRate) ===
+      Number(existingTrip?.driving_deduction_reporting ?? 0);
+
+  const snapshotConfiguration = preferTripMileageSnapshot({
+    configured: mileageResult.configuration,
+    appliedRate:
+      existingTrip?.applied_mileage_rate === null
+        ? undefined
+        : Number(existingTrip?.applied_mileage_rate),
+    appliedCurrency: existingTrip?.applied_mileage_currency as ReportingCurrency | null | undefined
+  });
+  const effectiveMileageConfiguration =
+    existingTrip?.applied_mileage_rate == null && derivedLegacyRate !== null
+      ? {
+          year: startYear,
+          rate: derivedLegacyRate,
+          currency: reportingCurrency,
+          source: "snapshot" as const
+        }
+      : snapshotConfiguration;
+  if (!effectiveMileageConfiguration) {
+    return {
+      error: `Für ${startYear} ist kein gültiger Kilometersatz in ${reportingCurrency} hinterlegt.`
+    };
+  }
+  if (effectiveMileageConfiguration.currency !== reportingCurrency) {
+    return {
+      error:
+        "Die gespeicherte Kilometerwährung passt nicht zur Buchhaltung. Die Fahrt wurde nicht verändert."
+    };
+  }
+
+  const totals = calculateTripTotals(
+    normalizedSegments,
+    effectiveMileageConfiguration.rate
+  );
+  const appliedMileageRate =
+    existingTrip?.applied_mileage_rate != null
+      ? Number(existingTrip.applied_mileage_rate)
+      : legacyRateIsReproducible
+        ? roundedLegacyRate
+        : tripId
+          ? null
+          : effectiveMileageConfiguration.rate;
+  const appliedMileageCurrency =
+    appliedMileageRate === null ? null : effectiveMileageConfiguration.currency;
+  const preserveLegacyDeduction =
+    Boolean(existingTrip) &&
+    existingTrip?.applied_mileage_rate == null &&
+    roundMoney(totals.businessKm) === roundMoney(oldBusinessKm);
+  const drivingDeduction = preserveLegacyDeduction
+    ? Number(existingTrip?.driving_deduction_reporting ?? 0)
+    : totals.drivingDeduction;
   const perDiem = buildPerDiemBreakdown({
     startAt,
     endAt,
@@ -1513,10 +1539,14 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
     note: note || null,
     total_km: totals.totalKm,
     reporting_currency: reportingCurrency,
-    driving_deduction_reporting: totals.drivingDeduction,
-    total_travel_expenses_reporting: 0,
+    driving_deduction_reporting: drivingDeduction,
+    applied_mileage_rate: appliedMileageRate,
+    applied_mileage_currency: appliedMileageCurrency,
+    total_travel_expenses_reporting: Number(existingTrip?.total_travel_expenses_reporting ?? 0),
     total_per_diem_reporting: perDiem.total,
-    deductible_total_reporting: roundMoney(totals.drivingDeduction + perDiem.total),
+    deductible_total_reporting: roundMoney(
+      drivingDeduction + Number(existingTrip?.total_travel_expenses_reporting ?? 0) + perDiem.total
+    ),
     mixed_trip_warning: mixedTrip
       ? "Mindestens ein privater Stopp vorhanden. Bitte steuerliche Trennung prÃ¼fen."
       : null,
@@ -1583,7 +1613,14 @@ export async function upsertTrip(formData: FormData): Promise<ActionResult> {
           to_label: String(segment.to_label ?? ""),
           kilometers,
           is_business: segment.is_business !== false,
-          deduction_reporting: segment.is_business === false ? 0 : roundMoney(kilometers * 0.3),
+          deduction_reporting:
+            segment.is_business === false
+              ? 0
+              : preserveLegacyDeduction &&
+                  oldSegments[index]?.is_business === true &&
+                  Number(oldSegments[index]?.kilometers) === kilometers
+                ? Number(oldSegments[index].deduction_reporting)
+                : roundMoney(kilometers * effectiveMileageConfiguration.rate),
           note: segment.note ? String(segment.note) : null
         };
       })

@@ -1,5 +1,6 @@
 import { calculatePerDiemForDay } from "@/lib/per-diem";
 import { roundMoney } from "@/lib/currency";
+import { GERMAN_DEFAULT_MILEAGE_RATE } from "@/lib/mileage";
 import type { BusinessCountry, PerDiemBreakdownRow, TripPurpose } from "@/lib/db-types";
 
 export type EditableTripStop = {
@@ -23,17 +24,21 @@ export type EditableTripSegment = {
   is_business?: boolean;
 };
 
-export const kilometerRate = 0.3;
-
 export function isBusinessPurpose(purpose: TripPurpose) {
   return purpose !== "Privat";
 }
 
-export function calculateDrivingDeduction(totalKm: number) {
-  return roundMoney(totalKm * kilometerRate);
+export function calculateDrivingDeduction(
+  totalKm: number,
+  mileageRate = GERMAN_DEFAULT_MILEAGE_RATE
+) {
+  return roundMoney(totalKm * mileageRate);
 }
 
-export function calculateTripTotals(segments: EditableTripSegment[]) {
+export function calculateTripTotals(
+  segments: EditableTripSegment[],
+  mileageRate = GERMAN_DEFAULT_MILEAGE_RATE
+) {
   const totalKm = segments.reduce((sum, segment) => sum + (segment.kilometers || 0), 0);
   const businessKm = segments.reduce(
     (sum, segment) => sum + (segment.is_business === false ? 0 : segment.kilometers || 0),
@@ -42,7 +47,7 @@ export function calculateTripTotals(segments: EditableTripSegment[]) {
   return {
     totalKm: roundMoney(totalKm),
     businessKm: roundMoney(businessKm),
-    drivingDeduction: calculateDrivingDeduction(businessKm)
+    drivingDeduction: calculateDrivingDeduction(businessKm, mileageRate)
   };
 }
 

@@ -5,6 +5,10 @@ import { isDepreciationActiveInYear } from "@/lib/depreciation";
 import { calculateDueDate, calculateInvoiceItem } from "@/lib/invoice-utils";
 import { calculatePerDiemForDay } from "@/lib/per-diem";
 import { calculateTripTotals } from "@/lib/trips";
+import {
+  getMileageConfiguration,
+  preferTripMileageSnapshot
+} from "@/lib/mileage";
 import { escapeHtml } from "@/lib/utils";
 
 test("currency conversion follows the stored CHF/EUR quotation", () => {
@@ -49,6 +53,78 @@ test("private trip segments remain visible but are not deductible", () => {
     ]),
     { totalKm: 150, businessKm: 100, drivingDeduction: 30 }
   );
+});
+
+test("Swiss 2026 mileage uses CHF 0.75 per business kilometer", () => {
+  assert.deepEqual(
+    calculateTripTotals(
+      [{ id: "business", from_label: "A", to_label: "B", kilometers: 100 }],
+      0.75
+    ),
+    { totalKm: 100, businessKm: 100, drivingDeduction: 75 }
+  );
+});
+
+test("German mileage keeps the existing EUR 0.30 default", () => {
+  assert.equal(
+    calculateTripTotals([
+      { id: "business", from_label: "A", to_label: "B", kilometers: 100 }
+    ]).drivingDeduction,
+    30
+  );
+});
+
+test("yearly mileage settings remain isolated by Buchhaltung", () => {
+  const settings = [
+    {
+      id: "ch-setting",
+      user_id: "user",
+      buchhaltung_id: "ch-book",
+      year: 2026,
+      mileage_rate: 0.8,
+      mileage_currency: "CHF" as const,
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01"
+    }
+  ];
+  const german = getMileageConfiguration({
+    buchhaltung: {
+      id: "de-book",
+      country: "Deutschland",
+      reporting_currency: "EUR"
+    },
+    year: 2026,
+    settings
+  });
+  const swiss = getMileageConfiguration({
+    buchhaltung: { id: "ch-book", country: "Schweiz", reporting_currency: "CHF" },
+    year: 2026,
+    settings
+  });
+
+  assert.equal(german?.rate, 0.3);
+  assert.equal(german?.currency, "EUR");
+  assert.equal(swiss?.rate, 0.8);
+  assert.equal(swiss?.currency, "CHF");
+});
+
+test("a saved trip snapshot wins over a later yearly setting change", () => {
+  const changedYearSetting = {
+    year: 2026,
+    rate: 0.9,
+    currency: "CHF" as const,
+    source: "saved" as const
+  };
+  const historical = preferTripMileageSnapshot({
+    configured: changedYearSetting,
+    appliedRate: 0.75,
+    appliedCurrency: "CHF"
+  });
+
+  assert.equal(historical?.rate, 0.75);
+  assert.equal(calculateTripTotals([
+    { id: "saved", from_label: "A", to_label: "B", kilometers: 100 }
+  ], historical?.rate).drivingDeduction, 75);
 });
 
 test("a same-day German trip must exceed eight hours for a meal allowance", () => {
