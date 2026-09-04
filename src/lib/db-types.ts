@@ -49,6 +49,30 @@ export type MileageYearSetting = BaseRow & {
   mileage_currency: ReportingCurrency;
 };
 
+export type TripTemplateStop = {
+  location: string;
+  country: string;
+  purpose: TripPurpose;
+};
+
+export type TripTemplateSegment = {
+  from_label: string;
+  to_label: string;
+  kilometers: number;
+  is_business: boolean;
+};
+
+export type TripTemplate = BaseRow & {
+  buchhaltung_id: string;
+  name: string;
+  title: string;
+  business_reason: string;
+  start_point: string;
+  end_point: string;
+  stops: TripTemplateStop[];
+  segments: TripTemplateSegment[];
+};
+
 export type Receipt = {
   id: string;
   user_id: string;

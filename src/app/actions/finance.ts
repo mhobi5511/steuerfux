@@ -23,7 +23,8 @@ import {
   incomeSchema,
   mileageYearSettingsSchema,
   reimbursementSchema,
-  settingsSchema
+  settingsSchema,
+  tripTemplatePresetSchema
 } from "@/lib/schemas";
 import { isIncomePaid, normalizeIncomeStatus } from "@/lib/income-status";
 import { buildPerDiemBreakdown, calculateTripTotals, validateTripChronology } from "@/lib/trips";
@@ -32,6 +33,7 @@ import {
   getYearFromDate,
   preferTripMileageSnapshot
 } from "@/lib/mileage";
+import { createTripTemplatePreset } from "@/lib/trip-templates";
 import { toBoolean, toNumber } from "@/lib/utils";
 import type {
   AppSettings,
@@ -39,7 +41,8 @@ import type {
   BusinessCountry,
   CurrencyCode,
   MileageYearSetting,
-  ReportingCurrency
+  ReportingCurrency,
+  Trip
 } from "@/lib/db-types";
 
 type ActionResult = { success?: string; error?: string };
@@ -1074,6 +1077,121 @@ export async function saveMileageYearSettings(formData: FormData): Promise<Actio
   revalidatePath("/einstellungen");
   revalidatePath("/fahrten-reisen");
   return { success: "Kilometersatz für das Abrechnungsjahr gespeichert." };
+}
+
+function validateTemplateName(value: FormDataEntryValue | null) {
+  const name = String(value ?? "").trim();
+  if (!name || name.length > 80) {
+    return { name: null, error: "Der Vorlagenname muss zwischen 1 und 80 Zeichen lang sein." };
+  }
+  return { name, error: null };
+}
+
+export async function saveTripAsTemplate(formData: FormData): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung auswählen." };
+
+  const tripId = String(formData.get("trip_id") ?? "");
+  const templateName = validateTemplateName(formData.get("name"));
+  if (templateName.error || !templateName.name) return { error: templateName.error ?? undefined };
+
+  const { data: trip, error: tripError } = await supabase
+    .from("trips")
+    .select("*, trip_stops(*), trip_segments(*)")
+    .eq("id", tripId)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .maybeSingle();
+  if (tripError || !trip) {
+    console.error("saveTripAsTemplate source error:", tripError);
+    return { error: "Die Ausgangsfahrt wurde nicht gefunden." };
+  }
+
+  const preset = createTripTemplatePreset(trip as Trip);
+  const parsedPreset = tripTemplatePresetSchema.safeParse(preset);
+  if (!parsedPreset.success) {
+    return { error: "Die wiederverwendbaren Routendaten sind unvollständig." };
+  }
+
+  const { error } = await supabase.from("trip_templates").insert({
+    user_id: user.id,
+    buchhaltung_id: activeBuchhaltung.id,
+    name: templateName.name,
+    ...parsedPreset.data
+  });
+  if (error) {
+    console.error("saveTripAsTemplate error:", error);
+    return {
+      error:
+        error.code === "23505"
+          ? "Eine Vorlage mit diesem Namen existiert bereits."
+          : "Die Vorlage konnte nicht gespeichert werden."
+    };
+  }
+
+  revalidatePath("/fahrten-reisen");
+  return { success: `Vorlage „${templateName.name}“ gespeichert.` };
+}
+
+export async function updateTripTemplate(formData: FormData): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung auswählen." };
+
+  const templateId = String(formData.get("template_id") ?? "");
+  const templateName = validateTemplateName(formData.get("name"));
+  if (templateName.error || !templateName.name) return { error: templateName.error ?? undefined };
+
+  let rawPreset: unknown;
+  try {
+    rawPreset = JSON.parse(String(formData.get("preset_json") ?? ""));
+  } catch {
+    return { error: "Die Vorlagendaten konnten nicht gelesen werden." };
+  }
+  const parsedPreset = tripTemplatePresetSchema.safeParse(rawPreset);
+  if (!parsedPreset.success) {
+    return { error: parsedPreset.error.issues[0]?.message ?? "Die Vorlagendaten sind ungültig." };
+  }
+
+  const { data, error } = await supabase
+    .from("trip_templates")
+    .update({ name: templateName.name, ...parsedPreset.data })
+    .eq("id", templateId)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) {
+    console.error("updateTripTemplate error:", error);
+    return { error: "Die Vorlage konnte nicht aktualisiert werden." };
+  }
+
+  revalidatePath("/fahrten-reisen");
+  return { success: `Vorlage „${templateName.name}“ aktualisiert.` };
+}
+
+export async function deleteTripTemplate(formData: FormData): Promise<ActionResult> {
+  const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
+  if (writeError) return { error: writeError };
+  if (!activeBuchhaltung) return { error: "Bitte zuerst eine Buchhaltung auswählen." };
+
+  const templateId = String(formData.get("template_id") ?? "");
+  const { data, error } = await supabase
+    .from("trip_templates")
+    .delete()
+    .eq("id", templateId)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) {
+    console.error("deleteTripTemplate error:", error);
+    return { error: "Die Vorlage konnte nicht gelöscht werden." };
+  }
+
+  revalidatePath("/fahrten-reisen");
+  return { success: "Vorlage gelöscht. Gespeicherte Fahrten bleiben unverändert." };
 }
 
 export async function saveEstimatedTaxRate(formData: FormData): Promise<ActionResult> {

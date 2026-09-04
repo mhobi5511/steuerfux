@@ -113,3 +113,30 @@ export const mileageYearSettingsSchema = z.object({
   mileage_rate: z.coerce.number().nonnegative("Der Kilometersatz darf nicht negativ sein."),
   mileage_currency: currencySchema
 });
+
+export const tripTemplatePresetSchema = z.object({
+  title: z.string().trim().min(1, "Eine Reisebezeichnung fehlt.").max(200),
+  business_reason: z.string().trim().max(300),
+  start_point: z.string().trim().min(1, "Der Startpunkt fehlt.").max(300),
+  end_point: z.string().trim().min(1, "Der Endpunkt fehlt.").max(300),
+  stops: z
+    .array(
+      z.object({
+        location: z.string().trim().min(1).max(300),
+        country: z.string().trim().min(1).max(100),
+        purpose: z.enum(["Geschäftlich", "Übernachtung geschäftlich", "Privat", "Transit"])
+      })
+    )
+    .max(30),
+  segments: z
+    .array(
+      z.object({
+        from_label: z.string().trim().min(1).max(300),
+        to_label: z.string().trim().min(1).max(300),
+        kilometers: z.number().finite().nonnegative(),
+        is_business: z.boolean()
+      })
+    )
+    .min(1)
+    .max(31)
+});

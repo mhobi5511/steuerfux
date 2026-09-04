@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { deleteTrip } from "@/app/actions/finance";
 import { TripForm } from "@/components/forms/trip-form";
+import { SaveTripTemplateButton } from "@/components/forms/save-trip-template-button";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReadOnlyNotice } from "@/components/layout/read-only-notice";
 import {
@@ -11,23 +12,29 @@ import {
 import { DeleteButton } from "@/components/records/delete-button";
 import { SimpleTable } from "@/components/records/simple-table";
 import { Button } from "@/components/ui/button";
-import { getMileageYearSettings, getModuleData } from "@/lib/data";
+import { getMileageYearSettings, getModuleData, getTripTemplates } from "@/lib/data";
+import { createTripTemplatePreset } from "@/lib/trip-templates";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 export default async function TripsPage({
   searchParams
 }: {
-  searchParams?: Promise<{ edit?: string; month?: string }>;
+  searchParams?: Promise<{ duplicate?: string; edit?: string; month?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const [moduleData, mileageSettings] = await Promise.all([
+  const [moduleData, mileageSettings, tripTemplates] = await Promise.all([
     getModuleData(undefined, ["trips", "reimbursements"]),
-    getMileageYearSettings()
+    getMileageYearSettings(),
+    getTripTemplates()
   ]);
   const { trips, reimbursements, settings, activeBuchhaltung, businessYear } = moduleData;
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
   const initialTrip = trips.find((trip) => trip.id === resolvedSearchParams?.edit) ?? null;
+  const duplicateSource = initialTrip
+    ? null
+    : trips.find((trip) => trip.id === resolvedSearchParams?.duplicate) ?? null;
+  const duplicatePreset = duplicateSource ? createTripTemplatePreset(duplicateSource) : null;
   const initialReimbursement =
     reimbursements.find((item) => item.source_trip_id === resolvedSearchParams?.edit) ?? null;
   const selectedMonth = getSelectedMonth(resolvedSearchParams?.month);
@@ -45,7 +52,7 @@ export default async function TripsPage({
       />
       {readOnly ? <ReadOnlyNotice /> : (
       <TripForm
-        key={`${activeBuchhaltung?.id ?? "no-book"}-${initialTrip?.id ?? "new"}`}
+        key={`${activeBuchhaltung?.id ?? "no-book"}-${initialTrip?.id ?? `new-${duplicateSource?.id ?? "blank"}`}`}
         homeAddress={settings?.default_home_address}
         businessCountry={settings?.business_country ?? "Deutschland"}
         reportingCurrency={reportingCurrency}
@@ -54,7 +61,9 @@ export default async function TripsPage({
         activeBuchhaltung={activeBuchhaltung}
         mileageSettings={mileageSettings}
         defaultYear={businessYear}
+        templates={tripTemplates}
         initialTrip={initialTrip}
+        duplicatePreset={duplicatePreset}
         initialReimbursement={initialReimbursement}
       />
       )}
@@ -88,6 +97,12 @@ export default async function TripsPage({
                 Bearbeiten
               </Button>
             </Link>
+            <Link href={`/fahrten-reisen?duplicate=${trip.id}&month=${selectedMonth}`}>
+              <Button type="button" variant="ghost">
+                Duplizieren
+              </Button>
+            </Link>
+            <SaveTripTemplateButton tripId={trip.id} />
             <DeleteButton id={trip.id} action={deleteTrip} label="Reise" />
           </div>
         ])}

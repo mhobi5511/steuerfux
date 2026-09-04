@@ -12,7 +12,7 @@ import {
   applyBuchhaltungSettings,
   getSelectedBuchhaltung
 } from "@/lib/buchhaltungen";
-import type { MileageYearSetting } from "@/lib/db-types";
+import type { MileageYearSetting, TripTemplate } from "@/lib/db-types";
 
 export type ModuleDataset =
   | "incomes"
@@ -82,6 +82,24 @@ export const getMileageYearSettings = cache(async () => {
     return [] as MileageYearSetting[];
   }
   return (data ?? []) as MileageYearSetting[];
+});
+
+export const getTripTemplates = cache(async () => {
+  const { supabase, user, activeBuchhaltung } = await getAccountingContext();
+  if (!activeBuchhaltung) return [] as TripTemplate[];
+
+  const { data, error } = await supabase
+    .from("trip_templates")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("getTripTemplates error:", error);
+    return [] as TripTemplate[];
+  }
+  return (data ?? []) as TripTemplate[];
 });
 
 export async function getModuleData(year?: number, datasets: ModuleDataset[] = allModuleDatasets) {

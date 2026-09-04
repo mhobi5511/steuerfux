@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { upsertTrip } from "@/app/actions/finance";
+import { useRouter } from "next/navigation";
+import { deleteTripTemplate, updateTripTemplate, upsertTrip } from "@/app/actions/finance";
 import { ExchangeRateInput } from "@/components/forms/exchange-rate-input";
 import { FormFeedback } from "@/components/forms/form-feedback";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import type {
   Reimbursement,
   ReportingCurrency,
   Trip,
+  TripTemplate,
   TripPurpose
 } from "@/lib/db-types";
 import { buildPerDiemBreakdown, calculateTripTotals } from "@/lib/trips";
@@ -29,6 +31,7 @@ import {
   getYearFromDate,
   preferTripMileageSnapshot
 } from "@/lib/mileage";
+import { templateToPreset, type TripTemplatePreset } from "@/lib/trip-templates";
 import { formatCurrency, toDateTimeLocalValue } from "@/lib/utils";
 
 type Stop = {
@@ -87,7 +90,10 @@ function mapTripToStops(trip?: Trip | null): Stop[] {
     }));
 }
 
-function mapTripToSegments(trip: Trip | null | undefined, homeAddress: string): Segment[] {
+function mapTripToSegments(
+  trip: Trip | null | undefined,
+  homeAddress: string
+): Segment[] {
   if (!trip?.trip_segments?.length) {
     return buildDefaultSegments(trip?.start_point || homeAddress);
   }
@@ -103,6 +109,27 @@ function mapTripToSegments(trip: Trip | null | undefined, homeAddress: string): 
     }));
 }
 
+function mapPresetToStops(preset?: TripTemplatePreset | null): Stop[] {
+  return (preset?.stops ?? []).map((stop) => ({
+    id: crypto.randomUUID(),
+    ...stop,
+    arrival_at: "",
+    departure_at: "",
+    breakfast_provided: false,
+    lunch_provided: false,
+    dinner_provided: false,
+    note: ""
+  }));
+}
+
+function mapPresetToSegments(
+  preset: TripTemplatePreset | null | undefined,
+  homeAddress: string
+): Segment[] {
+  if (!preset?.segments.length) return buildDefaultSegments(preset?.start_point ?? homeAddress);
+  return preset.segments.map((segment) => ({ id: crypto.randomUUID(), ...segment }));
+}
+
 export function TripForm({
   homeAddress = homeAddressDefault,
   businessCountry,
@@ -112,7 +139,9 @@ export function TripForm({
   activeBuchhaltung,
   mileageSettings,
   defaultYear,
+  templates,
   initialTrip = null,
+  duplicatePreset = null,
   initialReimbursement = null
 }: {
   homeAddress?: string;
@@ -123,19 +152,35 @@ export function TripForm({
   activeBuchhaltung: Buchhaltung | null;
   mileageSettings: MileageYearSetting[];
   defaultYear: number;
+  templates: TripTemplate[];
   initialTrip?: Trip | null;
+  duplicatePreset?: TripTemplatePreset | null;
   initialReimbursement?: Reimbursement | null;
 }) {
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
+  const [templatePending, startTemplateTransition] = useTransition();
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isDuplicate = Boolean(!initialTrip && duplicatePreset);
+  const [showDuplicateNotice, setShowDuplicateNotice] = useState(isDuplicate);
+  const [title, setTitle] = useState(initialTrip?.title ?? duplicatePreset?.title ?? "");
+  const [businessReason, setBusinessReason] = useState(
+    initialTrip?.business_reason ?? duplicatePreset?.business_reason ?? ""
+  );
   const [startAt, setStartAt] = useState(toDateTimeLocalValue(initialTrip?.start_at));
   const [endAt, setEndAt] = useState(toDateTimeLocalValue(initialTrip?.end_at));
-  const [stops, setStops] = useState<Stop[]>(() => mapTripToStops(initialTrip));
+  const [stops, setStops] = useState<Stop[]>(() =>
+    initialTrip ? mapTripToStops(initialTrip) : mapPresetToStops(duplicatePreset)
+  );
   const [expandedStopIds, setExpandedStopIds] = useState<Set<string>>(() => new Set());
-  const [startPoint, setStartPoint] = useState(initialTrip?.start_point ?? homeAddress);
-  const [endPoint, setEndPoint] = useState(initialTrip?.end_point ?? homeAddress);
+  const [startPoint, setStartPoint] = useState(
+    initialTrip?.start_point ?? duplicatePreset?.start_point ?? homeAddress
+  );
+  const [endPoint, setEndPoint] = useState(
+    initialTrip?.end_point ?? duplicatePreset?.end_point ?? homeAddress
+  );
   const [reimbursableToClient, setReimbursableToClient] = useState(
     initialTrip?.reimbursable_to_client ? "true" : "false"
   );
@@ -149,8 +194,11 @@ export function TripForm({
     initialReimbursement?.exchange_rate ?? 1
   );
   const [segments, setSegments] = useState<Segment[]>(() =>
-    mapTripToSegments(initialTrip, homeAddress)
+    initialTrip
+      ? mapTripToSegments(initialTrip, homeAddress)
+      : mapPresetToSegments(duplicatePreset, homeAddress)
   );
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [calculatingSegmentId, setCalculatingSegmentId] = useState<string | null>(null);
   const [distanceError, setDistanceError] = useState<string | null>(null);
 
@@ -190,22 +238,34 @@ export function TripForm({
   const crossesYear = Boolean(startYear && endYear && startYear !== endYear);
 
   useEffect(() => {
+    const nextIsDuplicate = Boolean(!initialTrip && duplicatePreset);
+    setTitle(initialTrip?.title ?? duplicatePreset?.title ?? "");
+    setBusinessReason(initialTrip?.business_reason ?? duplicatePreset?.business_reason ?? "");
+    setShowDuplicateNotice(nextIsDuplicate);
     setStartAt(toDateTimeLocalValue(initialTrip?.start_at));
     setEndAt(toDateTimeLocalValue(initialTrip?.end_at));
-    setStops(mapTripToStops(initialTrip));
-    setExpandedStopIds(new Set());
-    setStartPoint(initialTrip?.start_point ?? homeAddress);
-    setEndPoint(initialTrip?.end_point ?? homeAddress);
+    const nextStops = initialTrip
+      ? mapTripToStops(initialTrip)
+      : mapPresetToStops(duplicatePreset);
+    setStops(nextStops);
+    setExpandedStopIds(new Set(nextIsDuplicate ? nextStops.map((stop) => stop.id) : []));
+    setStartPoint(initialTrip?.start_point ?? duplicatePreset?.start_point ?? homeAddress);
+    setEndPoint(initialTrip?.end_point ?? duplicatePreset?.end_point ?? homeAddress);
     setReimbursableToClient(initialTrip?.reimbursable_to_client ? "true" : "false");
     setReimbursementAmount(
       initialReimbursement?.original_amount ? String(initialReimbursement.original_amount) : ""
     );
     setReimbursementCurrency(initialReimbursement?.currency ?? defaultCurrency);
     setReimbursementRate(initialReimbursement?.exchange_rate ?? 1);
-    setSegments(mapTripToSegments(initialTrip, homeAddress));
+    setSegments(
+      initialTrip
+        ? mapTripToSegments(initialTrip, homeAddress)
+        : mapPresetToSegments(duplicatePreset, homeAddress)
+    );
+    setActiveTemplateId(null);
     setSuccess(null);
     setError(null);
-  }, [defaultCurrency, homeAddress, initialReimbursement, initialTrip]);
+  }, [defaultCurrency, duplicatePreset, homeAddress, initialReimbursement, initialTrip]);
 
   function rebuildSegments(nextStart: string, nextEnd: string, nextStops: Stop[]) {
     const labels = [nextStart, ...nextStops.map((stop) => stop.location || "Zwischenstopp"), nextEnd];
@@ -270,6 +330,9 @@ export function TripForm({
     setError(null);
     setStartAt("");
     setEndAt("");
+    setTitle("");
+    setBusinessReason("");
+    setShowDuplicateNotice(false);
     setStops([]);
     setExpandedStopIds(new Set());
     setStartPoint(homeAddress);
@@ -279,6 +342,79 @@ export function TripForm({
     setReimbursementCurrency(defaultCurrency);
     setReimbursementRate(1);
     setSegments(buildDefaultSegments(homeAddress));
+    setActiveTemplateId(null);
+  }
+
+  function applyTemplate(template: TripTemplate) {
+    const preset = templateToPreset(template);
+    const nextStops = mapPresetToStops(preset);
+    setTitle(preset.title);
+    setBusinessReason(preset.business_reason);
+    setStartPoint(preset.start_point);
+    setEndPoint(preset.end_point);
+    setStops(nextStops);
+    setSegments(mapPresetToSegments(preset, homeAddress));
+    setExpandedStopIds(new Set(nextStops.map((stop) => stop.id)));
+    setActiveTemplateId(template.id);
+    setError(null);
+    setSuccess(`Vorlage „${template.name}“ übernommen. Datum und Zeiten bitte ergänzen.`);
+  }
+
+  function getCurrentTemplatePreset(): TripTemplatePreset {
+    return {
+      title,
+      business_reason: businessReason,
+      start_point: startPoint,
+      end_point: endPoint,
+      stops: stops.map((stop) => ({
+        location: stop.location,
+        country: stop.country,
+        purpose: stop.purpose
+      })),
+      segments: segments.map((segment) => ({
+        from_label: segment.from_label,
+        to_label: segment.to_label,
+        kilometers: segment.kilometers,
+        is_business: segment.is_business
+      }))
+    };
+  }
+
+  function updateActiveTemplate() {
+    const template = templates.find((item) => item.id === activeTemplateId);
+    if (!template) return;
+    startTemplateTransition(async () => {
+      setError(null);
+      setSuccess(null);
+      const formData = new FormData();
+      formData.set("template_id", template.id);
+      formData.set("name", template.name);
+      formData.set("preset_json", JSON.stringify(getCurrentTemplatePreset()));
+      const result = await updateTripTemplate(formData);
+      if (result.error) setError(result.error);
+      if (result.success) {
+        setSuccess(result.success);
+        router.refresh();
+      }
+    });
+  }
+
+  function removeActiveTemplate() {
+    const template = templates.find((item) => item.id === activeTemplateId);
+    if (!template || !confirm(`Vorlage „${template.name}“ löschen?`)) return;
+    startTemplateTransition(async () => {
+      setError(null);
+      setSuccess(null);
+      const formData = new FormData();
+      formData.set("template_id", template.id);
+      const result = await deleteTripTemplate(formData);
+      if (result.error) setError(result.error);
+      if (result.success) {
+        setActiveTemplateId(null);
+        setSuccess(result.success);
+        router.refresh();
+      }
+    });
   }
 
   async function calculateSegmentDistance(index: number) {
@@ -331,6 +467,95 @@ export function TripForm({
         </p>
       </div>
 
+      {!isEditing ? (
+        <section className="space-y-3 rounded-2xl border border-line bg-white p-4 dark:bg-slate-950">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Häufige Fahrten
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Route auswählen, Datum und Zeiten ergänzen, prüfen und speichern.
+            </p>
+          </div>
+          {templates.length ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {templates.slice(0, 3).map((template) => {
+                  const kilometers = template.segments.reduce(
+                    (sum, segment) => sum + segment.kilometers,
+                    0
+                  );
+                  const destination = template.stops.at(-1)?.location ?? template.end_point;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => applyTemplate(template)}
+                      className="min-h-16 rounded-xl border border-slate-200 px-4 py-3 text-left hover:border-brand-400 hover:bg-brand-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                    >
+                      <span className="block font-medium text-slate-950">{template.name}</span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {template.start_point} → {destination} · {kilometers.toFixed(1)} km
+                      </span>
+                      <span className="mt-2 block text-xs font-medium text-brand-700 dark:text-brand-300">
+                        Fahrt erfassen
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <Field label="Häufige Fahrt verwenden">
+                <Select
+                  value=""
+                  onChange={(event) => {
+                    const template = templates.find((item) => item.id === event.target.value);
+                    if (template) applyTemplate(template);
+                  }}
+                >
+                  <option value="">Vorlage auswählen</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {activeTemplateId ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={templatePending}
+                    onClick={updateActiveTemplate}
+                  >
+                    Vorlage mit aktueller Route aktualisieren
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={templatePending}
+                    onClick={removeActiveTemplate}
+                  >
+                    Vorlage löschen
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Noch keine Vorlagen. Speichere eine vorhandene Fahrt über „Als Vorlage speichern“.
+            </p>
+          )}
+        </section>
+      ) : null}
+
+      {showDuplicateNotice ? (
+        <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+          Wiederverwendbare Routendaten wurden übernommen. Dies ist eine neue, noch nicht
+          gespeicherte Fahrt; Datum, Zeiten und Kilometersatz werden neu bestimmt.
+        </p>
+      ) : null}
+
       <form
         ref={formRef}
         action={(formData) =>
@@ -365,14 +590,16 @@ export function TripForm({
               name="title"
               required
               placeholder="z. B. LED Drumshow Schweiz"
-              defaultValue={initialTrip?.title ?? ""}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
             />
           </Field>
           <Field label="Geschäftlicher Anlass">
             <Input
               name="business_reason"
               placeholder="z. B. Probe, Auftritt, Meeting"
-              defaultValue={initialTrip?.business_reason ?? ""}
+              value={businessReason}
+              onChange={(event) => setBusinessReason(event.target.value)}
             />
           </Field>
           <div>

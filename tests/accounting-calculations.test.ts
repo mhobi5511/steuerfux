@@ -5,6 +5,8 @@ import { isDepreciationActiveInYear } from "@/lib/depreciation";
 import { calculateDueDate, calculateInvoiceItem } from "@/lib/invoice-utils";
 import { calculatePerDiemForDay } from "@/lib/per-diem";
 import { calculateTripTotals } from "@/lib/trips";
+import { createTripTemplatePreset } from "@/lib/trip-templates";
+import type { Trip } from "@/lib/db-types";
 import {
   getMileageConfiguration,
   preferTripMileageSnapshot
@@ -125,6 +127,78 @@ test("a saved trip snapshot wins over a later yearly setting change", () => {
   assert.equal(calculateTripTotals([
     { id: "saved", from_label: "A", to_label: "B", kilometers: 100 }
   ], historical?.rate).drivingDeduction, 75);
+});
+
+test("trip duplication extracts reusable data without historical accounting facts", () => {
+  const original = {
+    id: "historical-trip",
+    title: "Probe",
+    business_reason: "Bandprobe",
+    start_point: "Mollis",
+    end_point: "Mollis",
+    start_at: "2026-08-10T08:00:00Z",
+    end_at: "2026-08-10T12:00:00Z",
+    applied_mileage_rate: 0.75,
+    applied_mileage_currency: "CHF",
+    driving_deduction_reporting: 75,
+    reimbursement_id: "historical-payment",
+    trip_stops: [
+      {
+        sort_order: 1,
+        location: "Zürich",
+        country: "Schweiz",
+        purpose: "Geschäftlich",
+        breakfast_provided: true,
+        lunch_provided: false,
+        dinner_provided: false
+      }
+    ],
+    trip_segments: [
+      {
+        sort_order: 1,
+        from_label: "Mollis",
+        to_label: "Zürich",
+        kilometers: 100,
+        is_business: true,
+        deduction_reporting: 75
+      }
+    ]
+  } as unknown as Trip;
+
+  const preset = createTripTemplatePreset(original);
+
+  assert.deepEqual(preset, {
+    title: "Probe",
+    business_reason: "Bandprobe",
+    start_point: "Mollis",
+    end_point: "Mollis",
+    stops: [{ location: "Zürich", country: "Schweiz", purpose: "Geschäftlich" }],
+    segments: [
+      { from_label: "Mollis", to_label: "Zürich", kilometers: 100, is_business: true }
+    ]
+  });
+  assert.equal("start_at" in preset, false);
+  assert.equal("applied_mileage_rate" in preset, false);
+  assert.equal("driving_deduction_reporting" in preset, false);
+  assert.equal("reimbursement_id" in preset, false);
+});
+
+test("editing reusable template data cannot mutate the source trip", () => {
+  const original = {
+    title: "Probe",
+    business_reason: "Bandprobe",
+    start_point: "A",
+    end_point: "A",
+    trip_stops: [],
+    trip_segments: [
+      { sort_order: 1, from_label: "A", to_label: "B", kilometers: 40, is_business: true }
+    ]
+  } as unknown as Trip;
+
+  const preset = createTripTemplatePreset(original);
+  preset.segments[0].kilometers = 55;
+
+  assert.equal(original.trip_segments?.[0].kilometers, 40);
 });
 
 test("a same-day German trip must exceed eight hours for a meal allowance", () => {
