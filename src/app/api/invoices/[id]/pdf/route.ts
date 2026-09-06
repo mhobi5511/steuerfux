@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
-import { createInvoiceAssetSignedUrl, getInvoiceForView, getInvoicePaymentFallback } from "@/lib/invoice-data";
-import { formatCents } from "@/lib/invoice-utils";
-import { generatePaymentQr } from "@/lib/payment-qr";
-import { formatDate } from "@/lib/utils";
 import { renderInvoicePdf } from "@/components/invoices/invoice-pdf-document";
+import {
+  createInvoiceAssetDataUrl,
+  getInvoiceForView,
+  getInvoicePaymentFallback,
+  InvoiceAccessError
+} from "@/lib/invoice-data";
+import {
+  createInvoicePdfFilename,
+  createPdfContentDisposition,
+  hasStoredInvoiceSnapshot,
+  resolveInvoiceBankSnapshot
+} from "@/lib/invoice-pdf";
+import { generatePaymentQr } from "@/lib/payment-qr";
 
 export const runtime = "nodejs";
 
@@ -11,64 +20,84 @@ function value(snapshot: Record<string, unknown> | null | undefined, key: string
   return typeof snapshot?.[key] === "string" ? String(snapshot[key]) : "";
 }
 
-function escapeHtml(input: string) {
-  return input
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-  const invoice = await getInvoiceForView(id);
-  if (!invoice) {
-    return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
-  }
+  try {
+    const { id } = await params;
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
+    }
 
-  const customer = invoice.customer_snapshot as Record<string, unknown>;
-  const sender = invoice.sender_snapshot as Record<string, unknown>;
-  const snapshotBank = (invoice.bank_snapshot ?? {}) as Record<string, unknown>;
-  const hasBankSnapshot = Boolean(value(snapshotBank, "account_holder") && value(snapshotBank, "iban"));
-  const paymentFallback = hasBankSnapshot ? null : await getInvoicePaymentFallback(invoice);
-  // Compatibility fallback for older invoices that predate payment snapshots.
-  const bank = (hasBankSnapshot ? snapshotBank : paymentFallback?.bank ?? {}) as Record<string, unknown>;
-  const qrSnapshot = (invoice.qr_payment_snapshot ?? {}) as Record<string, unknown>;
-  const fallbackQrMode = paymentFallback?.invoiceSettings?.default_use_uploaded_qr && value(bank, "qr_storage_path")
-    ? "uploaded"
-    : paymentFallback?.invoiceSettings?.default_payment_qr_enabled && invoice.currency === "EUR"
-      ? "generated"
-      : "none";
-  const qrMode = typeof qrSnapshot.mode === "string" ? qrSnapshot.mode : fallbackQrMode;
-  const items = (invoice.items ?? []).sort((a, b) => a.sort_order - b.sort_order);
-  const uploadedQrPath = typeof qrSnapshot.uploaded_qr_storage_path === "string"
-    ? qrSnapshot.uploaded_qr_storage_path
-    : value(bank, "qr_storage_path");
-  const uploadedQrUrl = qrMode === "uploaded" && uploadedQrPath
-    ? await createInvoiceAssetSignedUrl(uploadedQrPath)
-    : null;
-  const generatedQr = qrMode === "generated"
-    ? await generatePaymentQr({
-        accountHolder: value(bank, "account_holder"),
-        iban: value(bank, "iban"),
-        bic: value(bank, "bic"),
-        amountCents: invoice.gross_total_cents,
-        currency: invoice.currency,
-        invoiceNumber: invoice.invoice_number,
-        purpose: typeof qrSnapshot.payment_purpose === "string" ? qrSnapshot.payment_purpose : null
-      })
-    : null;
-  const paymentQrImage = uploadedQrUrl ?? generatedQr?.dataUrl ?? null;
-  const paymentQrLabel = uploadedQrUrl
-    ? "Zahlungs-QR-Code"
-    : generatedQr?.label ?? null;
-  const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
-  const shouldDownload = new URL(request.url).searchParams.get("download") === "1";
+    const invoice = await getInvoiceForView(id);
+    if (!invoice) {
+      return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
+    }
 
-  if (shouldDownload) {
+    const customer = invoice.customer_snapshot as Record<string, unknown>;
+    const sender = invoice.sender_snapshot as Record<string, unknown>;
+    const snapshotBank = invoice.bank_snapshot as Record<string, unknown> | null;
+    const hasBankSnapshot = hasStoredInvoiceSnapshot(snapshotBank);
+    // Older invoices without a bank snapshot intentionally retain the existing
+    // compatibility fallback, scoped to this invoice's Buchhaltung.
+    const paymentFallback = hasBankSnapshot ? null : await getInvoicePaymentFallback(invoice);
+    const bank = resolveInvoiceBankSnapshot(
+      snapshotBank,
+      paymentFallback?.bank as Record<string, unknown> | null | undefined
+    );
+    const qrSnapshot = (invoice.qr_payment_snapshot ?? {}) as Record<string, unknown>;
+    const fallbackQrMode = paymentFallback?.invoiceSettings?.default_use_uploaded_qr
+      && value(bank, "qr_storage_path")
+      ? "uploaded"
+      : paymentFallback?.invoiceSettings?.default_payment_qr_enabled
+          && invoice.currency === "EUR"
+        ? "generated"
+        : "none";
+    const qrMode = ["uploaded", "generated", "none"].includes(String(qrSnapshot.mode))
+      ? String(qrSnapshot.mode)
+      : fallbackQrMode;
+    const uploadedQrPath = typeof qrSnapshot.uploaded_qr_storage_path === "string"
+      ? qrSnapshot.uploaded_qr_storage_path
+      : value(bank, "qr_storage_path");
+
+    let paymentQrImage: string | null = null;
+    let paymentQrLabel: string | null = null;
+    let qrUnavailable = false;
+
+    try {
+      if (qrMode === "uploaded" && uploadedQrPath) {
+        paymentQrImage = await createInvoiceAssetDataUrl(
+          uploadedQrPath,
+          invoice.buchhaltung_id
+        );
+        paymentQrLabel = "Zahlungs-QR-Code";
+        qrUnavailable = !paymentQrImage;
+      } else if (qrMode === "generated") {
+        const generatedQr = await generatePaymentQr({
+          accountHolder: value(bank, "account_holder"),
+          iban: value(bank, "iban"),
+          bic: value(bank, "bic"),
+          amountCents: invoice.gross_total_cents,
+          currency: invoice.currency,
+          invoiceNumber: invoice.invoice_number,
+          purpose: typeof qrSnapshot.payment_purpose === "string"
+            ? qrSnapshot.payment_purpose
+            : null
+        });
+        paymentQrImage = generatedQr?.dataUrl ?? null;
+        paymentQrLabel = generatedQr?.label ?? null;
+        qrUnavailable = !paymentQrImage;
+      }
+    } catch (error) {
+      qrUnavailable = qrMode !== "none";
+      console.warn("invoice QR generation error:", error);
+    }
+
     const pdfBuffer = await renderInvoicePdf({
       invoice,
       customer,
@@ -77,161 +106,42 @@ export async function GET(
       qrImage: paymentQrImage,
       qrLabel: paymentQrLabel
     });
-    return new NextResponse(new Uint8Array(pdfBuffer), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="rechnung-${invoice.invoice_number ?? invoice.id}.pdf"`
-      }
-    });
+    const filename = createInvoicePdfFilename(
+      invoice.invoice_number,
+      value(customer, "company_name")
+    );
+    const shouldDownload = new URL(request.url).searchParams.get("download") === "1";
+    const headers: Record<string, string> = {
+      "Cache-Control": "private, no-store, max-age=0",
+      "Content-Disposition": createPdfContentDisposition(
+        filename,
+        shouldDownload ? "attachment" : "inline"
+      ),
+      "Content-Length": String(pdfBuffer.byteLength),
+      "Content-Type": "application/pdf",
+      "X-Content-Type-Options": "nosniff"
+    };
+    if (qrUnavailable) headers["X-Invoice-Pdf-Warning"] = "qr-unavailable";
+
+    return new NextResponse(new Uint8Array(pdfBuffer), { headers });
+  } catch (error) {
+    if (error instanceof InvoiceAccessError && error.code === "UNAUTHENTICATED") {
+      return NextResponse.json(
+        { error: "Bitte melden Sie sich an, um die Rechnung abzurufen." },
+        { status: 401 }
+      );
+    }
+    if (error instanceof InvoiceAccessError && error.code === "LOAD_FAILED") {
+      return NextResponse.json(
+        { error: "Die Rechnungsdaten konnten nicht geladen werden." },
+        { status: 500 }
+      );
+    }
+
+    console.error("invoice PDF generation error:", error);
+    return NextResponse.json(
+      { error: "PDF konnte nicht erstellt werden." },
+      { status: 500 }
+    );
   }
-
-  const html = `<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rechnung ${escapeHtml(invoice.invoice_number ?? "Entwurf")}</title>
-  <style>
-    @page { size: A4; margin: 18mm; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #fff;
-      color: #0f172a;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-    .page { max-width: 900px; margin: 0 auto; padding: 34px; }
-    .top { display: flex; justify-content: space-between; gap: 40px; align-items: flex-start; }
-    h1 { margin: 0; font-size: 38px; letter-spacing: 0; }
-    .muted { color: #64748b; }
-    .meta { min-width: 230px; border-left: 3px solid #0f172a; padding-left: 16px; }
-    .meta div { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
-    .addresses { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 46px; }
-    .address-card { display: flex; flex-direction: column; }
-    .label { margin-bottom: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #64748b; }
-    .box { flex: 1; border: 1px solid #dbe3ef; border-radius: 16px; padding: 16px; min-height: 150px; }
-    .due { margin: 34px 0; border-radius: 18px; background: #0f172a; color: #fff; padding: 20px 24px; }
-    .due strong { display: block; margin-top: 4px; font-size: 25px; }
-    table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
-    thead { display: table-header-group; }
-    tr { page-break-inside: avoid; page-break-after: auto; }
-    th { text-align: left; padding: 11px 10px; background: #f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
-    td { vertical-align: top; padding: 13px 10px; border-bottom: 1px solid #e2e8f0; }
-    td.num, th.num { text-align: right; white-space: nowrap; }
-    .item-title { font-weight: 700; color: #0f172a; }
-    .totals { width: min(390px, 100%); margin-left: auto; margin-top: 24px; }
-    .totals div { display: flex; justify-content: space-between; gap: 20px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-    .totals .grand { font-size: 16px; font-weight: 800; border-bottom: 0; }
-    .payment { margin-top: 34px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
-    .qr { margin-top: 18px; }
-    .qr img { display: block; width: 132px; height: 132px; object-fit: contain; image-rendering: crisp-edges; }
-    .qr-label { margin: 8px 0 0; font-size: 10px; color: #64748b; }
-    .notice { margin-top: -18px; margin-bottom: 24px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; border-radius: 14px; padding: 12px 14px; }
-    .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 10px; }
-    @media print { .page { padding: 0; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
-  </style>
-</head>
-<body>
-  <main class="page">
-    <section class="top">
-      <div>
-        <h1>RECHNUNG</h1>
-      </div>
-      <aside class="meta">
-        <div><span class="muted">Rechnungsnummer</span><strong>${escapeHtml(invoice.invoice_number ?? "Entwurf")}</strong></div>
-        <div><span class="muted">Ausstellungsdatum</span><strong>${formatDate(invoice.issue_date)}</strong></div>
-        <div><span class="muted">Status</span><strong>${escapeHtml(invoice.status)}</strong></div>
-      </aside>
-    </section>
-
-    <section class="addresses">
-      <div class="address-card">
-        <p class="label">Rechnung für</p>
-        <div class="box">
-          <strong>${escapeHtml(value(customer, "company_name"))}</strong><br />
-          ${value(customer, "contact_name") ? `${escapeHtml(value(customer, "contact_name"))}<br />` : ""}
-          ${escapeHtml(value(customer, "street"))}<br />
-          ${escapeHtml(value(customer, "postal_code"))} ${escapeHtml(value(customer, "city"))}<br />
-          ${escapeHtml(value(customer, "country"))}<br /><br />
-          ${escapeHtml(value(customer, "email"))}
-        </div>
-      </div>
-      <div class="address-card">
-        <p class="label">Ausgestellt von</p>
-        <div class="box">
-          <strong>${escapeHtml(value(sender, "name"))}</strong><br />
-          ${value(sender, "addition") ? `${escapeHtml(value(sender, "addition"))}<br />` : ""}
-          ${escapeHtml(value(sender, "street"))}<br />
-          ${escapeHtml(value(sender, "postal_code"))} ${escapeHtml(value(sender, "city"))}<br />
-          ${escapeHtml(value(sender, "country"))}<br /><br />
-          ${escapeHtml(value(sender, "email"))}<br />
-          ${value(sender, "phone") ? `${escapeHtml(value(sender, "phone"))}<br />` : ""}
-          ${value(sender, "tax_id") ? `Steuernummer / UID: ${escapeHtml(value(sender, "tax_id"))}` : ""}
-        </div>
-      </div>
-    </section>
-
-    <section class="due">
-      <span>Zu zahlender Betrag</span>
-      <strong>${formatCents(invoice.gross_total_cents, invoice.currency)} fällig bis zum ${formatDate(invoice.due_date)}</strong>
-    </section>
-    ${invoice.tax_note ? `<div class="notice">${escapeHtml(invoice.tax_note)}</div>` : ""}
-
-    <table>
-      <thead>
-        <tr>
-          <th>Produkt oder Dienstleistung</th>
-          <th class="num">Menge</th>
-          <th class="num">Einzelpreis</th>
-          <th class="num">Steuern</th>
-          <th class="num">Gesamtbetrag</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${items
-          .map(
-            (item) => `<tr>
-              <td><div class="item-title">${escapeHtml(item.title)}</div>${item.description ? `<div class="muted">${escapeHtml(item.description)}</div>` : ""}</td>
-              <td class="num">${Number(item.quantity).toLocaleString("de-DE")} ${escapeHtml(item.unit ?? "")}</td>
-              <td class="num">${formatCents(item.unit_price_cents, invoice.currency)}</td>
-              <td class="num">${isTaxExempt ? formatCents(0, invoice.currency) : `${Number(item.vat_rate).toLocaleString("de-DE")} %<br /><span class="muted">${formatCents(item.vat_amount_cents, invoice.currency)}</span>`}</td>
-              <td class="num">${formatCents(item.gross_amount_cents, invoice.currency)}</td>
-            </tr>`
-          )
-          .join("")}
-      </tbody>
-    </table>
-
-    <section class="totals">
-      <div><span>Gesamtsumme ohne Steuern</span><strong>${formatCents(invoice.net_total_cents, invoice.currency)}</strong></div>
-      <div><span>Gesamtsteuer</span><strong>${formatCents(invoice.vat_total_cents, invoice.currency)}</strong></div>
-      <div class="grand"><span>Zu zahlender Betrag</span><strong>${formatCents(invoice.gross_total_cents, invoice.currency)}</strong></div>
-    </section>
-
-    <section class="payment">
-      <div>
-        <p class="label">Zahlungsmöglichkeiten</p>
-        <p>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</p>
-        ${paymentQrImage ? `<div class="qr"><img src="${escapeHtml(paymentQrImage)}" alt="${escapeHtml(paymentQrLabel ?? "Zahlungs-QR-Code")}" /><p class="qr-label">${escapeHtml(paymentQrLabel ?? "Zahlungs-QR-Code")}</p></div>` : ""}
-      </div>
-      <div>
-        <p class="label">Bankverbindung</p>
-        ${value(bank, "account_holder") ? `<strong>${escapeHtml(value(bank, "account_holder"))}</strong><br />` : ""}
-        ${value(bank, "iban") ? `IBAN: ${escapeHtml(value(bank, "iban"))}<br />` : ""}
-        ${value(bank, "bic") ? `BIC / SWIFT: ${escapeHtml(value(bank, "bic"))}<br />` : ""}
-        ${value(bank, "bank_name") ? `${escapeHtml(value(bank, "bank_name"))}<br />` : ""}
-      </div>
-    </section>
-  </main>
-</body>
-</html>`;
-
-  return new NextResponse(html, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Disposition": `inline; filename="rechnung-${invoice.invoice_number ?? invoice.id}.html"`
-    }
-  });
 }

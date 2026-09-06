@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
-import { getSelectedBuchhaltung } from "@/lib/buchhaltungen";
 import { getAccountingContext } from "@/lib/data";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   BankAccount,
   Customer,
@@ -71,17 +71,22 @@ export async function getInvoiceModuleData({
 }
 
 export async function getInvoiceForView(id: string) {
-  const { supabase, user, activeBuchhaltung } = await getAccountingContext();
-  if (!activeBuchhaltung) return null;
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) console.error("invoice PDF authentication error:", authError);
+  if (!user) throw new InvoiceAccessError("UNAUTHENTICATED");
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("invoices")
     .select("*, invoice_items(*), invoice_payments(*)")
     .eq("id", id)
     .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung.id)
     .maybeSingle();
 
+  if (error) {
+    console.error("invoice PDF data load error:", error);
+    throw new InvoiceAccessError("LOAD_FAILED");
+  }
   if (!data) return null;
   return {
     ...data,
@@ -90,20 +95,53 @@ export async function getInvoiceForView(id: string) {
   } as Invoice;
 }
 
-export async function createInvoiceAssetSignedUrl(storagePath: string) {
-  const { supabase } = await requireUser();
+export class InvoiceAccessError extends Error {
+  constructor(public readonly code: "UNAUTHENTICATED" | "LOAD_FAILED") {
+    super(code);
+    this.name = "InvoiceAccessError";
+  }
+}
+
+export async function createInvoiceAssetDataUrl(
+  storagePath: string,
+  buchhaltungId: string
+) {
+  const { supabase, user } = await requireUser();
+  if (!storagePath.startsWith(`${user.id}/${buchhaltungId}/`)) {
+    console.warn("Rejected invoice asset outside the authenticated Buchhaltung path.");
+    return null;
+  }
+
   const { data, error } = await supabase.storage
     .from("invoice-assets")
-    .createSignedUrl(storagePath, 60 * 5);
-  if (error) return null;
-  return data.signedUrl;
+    .download(storagePath);
+  if (error || !data) {
+    console.warn("invoice QR asset download error:", error);
+    return null;
+  }
+
+  const bytes = new Uint8Array(await data.arrayBuffer());
+  const isPng = bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47;
+  const isJpeg = bytes.length >= 3
+    && bytes[0] === 0xff
+    && bytes[1] === 0xd8
+    && bytes[2] === 0xff;
+  if (!isPng && !isJpeg) {
+    console.warn("Invoice QR asset is not a supported PNG or JPEG image.");
+    return null;
+  }
+
+  const contentType = isPng ? "image/png" : "image/jpeg";
+  return `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
 export async function getInvoicePaymentFallback(invoice: Invoice) {
   const { supabase, user } = await requireUser();
-  const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
-  const { activeBuchhaltung } = await getSelectedBuchhaltung(supabase, user, settings);
-  if (!activeBuchhaltung || invoice.buchhaltung_id !== activeBuchhaltung.id) {
+  if (invoice.user_id !== user.id) {
     return { bank: null as BankAccount | null, invoiceSettings: null as InvoiceSettings | null };
   }
 
@@ -113,12 +151,17 @@ export async function getInvoicePaymentFallback(invoice: Invoice) {
         .select("*")
         .eq("id", id)
         .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung.id)
+        .eq("buchhaltung_id", invoice.buchhaltung_id)
         .maybeSingle()
     : null;
   const selected = await loadBank(invoice.bank_account_id);
   if (selected?.data) {
-    const { data: invoiceSettings } = await supabase.from("invoice_settings").select("*").eq("buchhaltung_id", activeBuchhaltung.id).maybeSingle();
+    const { data: invoiceSettings } = await supabase
+      .from("invoice_settings")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("buchhaltung_id", invoice.buchhaltung_id)
+      .maybeSingle();
     return { bank: selected.data as BankAccount, invoiceSettings: invoiceSettings as InvoiceSettings | null };
   }
 
@@ -126,7 +169,7 @@ export async function getInvoicePaymentFallback(invoice: Invoice) {
     .from("bank_accounts")
     .select("*")
     .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .eq("buchhaltung_id", invoice.buchhaltung_id)
     .eq("currency", invoice.currency)
     .eq("is_default", true)
     .maybeSingle();
@@ -136,14 +179,15 @@ export async function getInvoicePaymentFallback(invoice: Invoice) {
         .from("bank_accounts")
         .select("*")
         .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung.id)
+        .eq("buchhaltung_id", invoice.buchhaltung_id)
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
   const { data: invoiceSettings } = await supabase
     .from("invoice_settings")
     .select("*")
-    .eq("buchhaltung_id", activeBuchhaltung.id)
+    .eq("user_id", user.id)
+    .eq("buchhaltung_id", invoice.buchhaltung_id)
     .maybeSingle();
   return {
     bank: (matchingDefault ?? firstAccount) as BankAccount | null,

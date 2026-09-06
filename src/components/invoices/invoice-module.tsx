@@ -11,6 +11,7 @@ import {
   sendInvoiceEmail
 } from "@/app/actions/invoices";
 import { FormFeedback } from "@/components/forms/form-feedback";
+import { InvoicePdfActions } from "@/components/invoices/invoice-pdf-actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -549,12 +550,11 @@ export function InvoiceModule({
                   <td className="px-3 py-3">{isOverdue(invoice) ? "Überfällig" : invoice.status}</td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <Link href={`/api/invoices/${invoice.id}/pdf`} target="_blank">
-                        <Button type="button" variant="ghost">PDF ansehen</Button>
-                      </Link>
-                      <Link href={`/api/invoices/${invoice.id}/pdf?download=1`}>
-                        <Button type="button" variant="ghost">PDF herunterladen</Button>
-                      </Link>
+                      <InvoicePdfActions
+                        invoiceId={invoice.id}
+                        invoiceNumber={invoice.invoice_number}
+                        recipientName={snapshotValue(invoice.customer_snapshot, "company_name")}
+                      />
                       {invoice.status === "Entwurf" && !readOnly ? (
                         <Link href={`/rechnungen?edit=${invoice.id}`}>
                           <Button type="button" variant="ghost">Bearbeiten</Button>

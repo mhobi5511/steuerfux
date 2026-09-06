@@ -24,20 +24,20 @@ type Props = {
 };
 
 const styles = StyleSheet.create({
-  page: { padding: 48, fontFamily: "Helvetica", fontSize: 10, color: "#0f172a" },
-  top: { flexDirection: "row", justifyContent: "space-between" },
+  page: { paddingTop: 48, paddingHorizontal: 48, paddingBottom: 68, fontFamily: "Helvetica", fontSize: 10, color: "#0f172a" },
+  top: { flexDirection: "row", justifyContent: "space-between", flexShrink: 0 },
   title: { fontSize: 28, fontFamily: "Helvetica-Bold" },
   meta: { width: 190, borderLeftWidth: 2, borderLeftColor: "#0f172a", paddingLeft: 12 },
   metaRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   muted: { color: "#64748b" },
-  addresses: { flexDirection: "row", gap: 20, marginTop: 30 },
+  addresses: { flexDirection: "row", gap: 20, marginTop: 30, flexShrink: 0 },
   address: { flexGrow: 1, flexBasis: 0 },
   label: { marginBottom: 7, fontSize: 8, fontFamily: "Helvetica-Bold", color: "#64748b" },
-  box: { minHeight: 105, borderWidth: 1, borderColor: "#dbe3ef", padding: 12 },
-  due: { marginTop: 24, backgroundColor: "#0f172a", color: "#ffffff", padding: 16 },
+  box: { minHeight: 105, borderWidth: 1, borderColor: "#dbe3ef", borderRadius: 10, padding: 12 },
+  due: { marginTop: 24, backgroundColor: "#0f172a", color: "#ffffff", borderRadius: 10, padding: 16, flexShrink: 0 },
   dueAmount: { marginTop: 4, fontSize: 18, fontFamily: "Helvetica-Bold" },
-  notice: { marginTop: 16, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#92400e", padding: 10 },
-  table: { marginTop: 24 },
+  notice: { marginTop: 16, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#92400e", borderRadius: 8, padding: 10, flexShrink: 0 },
+  table: { marginTop: 24, flexShrink: 0 },
   tableHead: { flexDirection: "row", backgroundColor: "#f1f5f9", paddingVertical: 8 },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e2e8f0", paddingVertical: 9 },
   description: { width: "40%" },
@@ -49,7 +49,10 @@ const styles = StyleSheet.create({
   payment: { flexDirection: "row", gap: 26, marginTop: 26 },
   paymentColumn: { flexGrow: 1, flexBasis: 0 },
   qr: { width: 112, height: 112, marginTop: 10 },
-  qrLabel: { marginTop: 5, fontSize: 8, color: "#64748b" }
+  qrLabel: { marginTop: 5, fontSize: 8, color: "#64748b" },
+  continuationHeader: { position: "absolute", left: 48, right: 48, top: 24, color: "#64748b", fontSize: 8, textAlign: "right" },
+  footer: { position: "absolute", left: 48, right: 48, bottom: 24, borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 6, flexDirection: "row", justifyContent: "space-between" },
+  footerText: { color: "#64748b", fontSize: 8 }
 });
 
 function value(snapshot: Snapshot, key: string) {
@@ -81,7 +84,14 @@ export async function renderInvoicePdf(props: Props) {
   const document = (
     <Document title={`Rechnung ${invoice.invoice_number ?? "Entwurf"}`} author={value(sender, "name")}>
       <Page size="A4" style={styles.page}>
-        <View style={styles.top}>
+        <Text
+          style={styles.continuationHeader}
+          fixed
+          render={({ pageNumber }) => pageNumber > 1
+            ? `Rechnung ${invoice.invoice_number ?? "Entwurf"} · Fortsetzung`
+            : ""}
+        />
+        <View style={styles.top} wrap={false}>
           <Text style={styles.title}>RECHNUNG</Text>
           <View style={styles.meta}>
             <View style={styles.metaRow}><Text style={styles.muted}>Rechnungsnummer</Text><Text>{invoice.invoice_number ?? "Entwurf"}</Text></View>
@@ -89,22 +99,22 @@ export async function renderInvoicePdf(props: Props) {
             <View style={styles.metaRow}><Text style={styles.muted}>Status</Text><Text>{invoice.status}</Text></View>
           </View>
         </View>
-        <View style={styles.addresses}>
+        <View style={styles.addresses} wrap={false}>
           <AddressBox title="RECHNUNG FÜR"><Text>{lines([value(customer, "company_name"), value(customer, "contact_name"), value(customer, "street"), `${value(customer, "postal_code")} ${value(customer, "city")}`.trim(), value(customer, "country"), "", value(customer, "email")])}</Text></AddressBox>
           <AddressBox title="AUSGESTELLT VON"><Text>{lines([value(sender, "name"), value(sender, "addition"), value(sender, "street"), `${value(sender, "postal_code")} ${value(sender, "city")}`.trim(), value(sender, "country"), "", value(sender, "email"), value(sender, "phone"), value(sender, "tax_id") ? `Steuernummer / UID: ${value(sender, "tax_id")}` : ""])}</Text></AddressBox>
         </View>
-        <View style={styles.due}><Text>Zu zahlender Betrag</Text><Text style={styles.dueAmount}>{formatCents(invoice.gross_total_cents, invoice.currency)} fällig bis zum {formatDate(invoice.due_date)}</Text></View>
-        {invoice.tax_note ? <View style={styles.notice}><Text>{invoice.tax_note}</Text></View> : null}
+        <View style={styles.due} wrap={false}><Text>Zu zahlender Betrag</Text><Text style={styles.dueAmount}>{formatCents(invoice.gross_total_cents, invoice.currency)} fällig bis zum {formatDate(invoice.due_date)}</Text></View>
+        {invoice.tax_note ? <View style={styles.notice} wrap={false}><Text>{invoice.tax_note}</Text></View> : null}
         <View style={styles.table}>
-          <View style={styles.tableHead}><Text style={styles.description}>Produkt oder Dienstleistung</Text><Text style={styles.quantity}>Menge</Text><Text style={styles.money}>Einzelpreis</Text><Text style={styles.money}>Steuern</Text><Text style={styles.money}>Gesamtbetrag</Text></View>
+          <View style={styles.tableHead} wrap={false}><Text style={styles.description}>Produkt oder Dienstleistung</Text><Text style={styles.quantity}>Menge</Text><Text style={styles.money}>Einzelpreis</Text><Text style={styles.money}>Steuern</Text><Text style={styles.money}>Gesamtbetrag</Text></View>
           {items.map((item) => <ItemRow key={item.id} item={item} invoice={invoice} isTaxExempt={isTaxExempt} />)}
         </View>
-        <View style={styles.totals}>
+        <View style={styles.totals} wrap={false}>
           <View style={styles.totalRow}><Text>Gesamtsumme ohne Steuern</Text><Text>{formatCents(invoice.net_total_cents, invoice.currency)}</Text></View>
           <View style={styles.totalRow}><Text>Gesamtsteuer</Text><Text>{formatCents(invoice.vat_total_cents, invoice.currency)}</Text></View>
           <View style={[styles.totalRow, styles.grand]}><Text>Zu zahlender Betrag</Text><Text>{formatCents(invoice.gross_total_cents, invoice.currency)}</Text></View>
         </View>
-        <View style={styles.payment}>
+        <View style={styles.payment} wrap={false}>
           <View style={styles.paymentColumn}>
             <Text style={styles.label}>ZAHLUNGSMÖGLICHKEITEN</Text>
             <Text>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</Text>
@@ -116,6 +126,13 @@ export async function renderInvoicePdf(props: Props) {
             </> : null}
           </View>
           <View style={styles.paymentColumn}><Text style={styles.label}>BANKVERBINDUNG</Text><Text>{lines([value(bank, "account_holder"), value(bank, "iban") ? `IBAN: ${value(bank, "iban")}` : "", value(bank, "bic") ? `BIC / SWIFT: ${value(bank, "bic")}` : "", value(bank, "bank_name")])}</Text></View>
+        </View>
+        <View style={styles.footer} fixed>
+          <Text style={styles.footerText}>{lines([value(sender, "name"), invoice.invoice_number ?? "Entwurf"]).replace("\n", " · ")}</Text>
+          <Text
+            style={styles.footerText}
+            render={({ pageNumber, totalPages }) => `Seite ${pageNumber} von ${totalPages}`}
+          />
         </View>
       </Page>
     </Document>
