@@ -1,3 +1,7 @@
+/** @jsxRuntime classic */
+/** @jsx createPdfElement */
+
+import * as nodeModule from "node:module";
 import {
   Document,
   Image,
@@ -11,6 +15,44 @@ import type { ReactNode } from "react";
 import type { Invoice, InvoiceItem } from "@/lib/db-types";
 import { formatCents } from "@/lib/invoice-utils";
 import { formatDate } from "@/lib/utils";
+
+// Next.js App Router compiles ordinary server JSX with its vendored RSC React
+// runtime. React-PDF is a server external and must receive elements created by
+// the application's matching React dependency instead.
+const createNodeRequire = Reflect.get(
+  nodeModule,
+  "createRequire"
+) as typeof nodeModule.createRequire;
+const requireFromApplication = Reflect.apply(createNodeRequire, nodeModule, [
+  `${process.cwd()}/package.json`
+]);
+const applicationReact = requireFromApplication("react") as typeof import("react");
+const { createElement: createPdfElement } = applicationReact;
+
+export function getInvoicePdfReactRuntimeInfo() {
+  const probe = createPdfElement("invoice-pdf-runtime-probe") as unknown as {
+    $$typeof: symbol;
+  };
+  const reactMajor = Number.parseInt(applicationReact.version.split(".")[0] ?? "", 10);
+  const expectedElementType = reactMajor >= 19
+    ? Symbol.for("react.transitional.element")
+    : Symbol.for("react.element");
+
+  return {
+    reactVersion: applicationReact.version,
+    elementType: String(probe.$$typeof),
+    compatible: probe.$$typeof === expectedElementType
+  };
+}
+
+function assertCompatiblePdfReactRuntime() {
+  const runtime = getInvoicePdfReactRuntimeInfo();
+  if (!runtime.compatible) {
+    throw new Error(
+      `PDF React element factory is incompatible with React ${runtime.reactVersion}: ${runtime.elementType}`
+    );
+  }
+}
 
 type Snapshot = Record<string, unknown>;
 
@@ -92,6 +134,14 @@ function assertValidPdfBuffer(buffer: Uint8Array) {
   }
 }
 
+export async function renderMinimalPdf() {
+  assertCompatiblePdfReactRuntime();
+  const document = <Document><Page><Text>Hello PDF</Text></Page></Document>;
+  const buffer = await renderToBuffer(document);
+  assertValidPdfBuffer(buffer);
+  return buffer;
+}
+
 function AddressBox({ title, children }: { title: string; children: ReactNode }) {
   return <View style={styles.address}><Text style={styles.label}>{title}</Text><View style={styles.box}>{children}</View></View>;
 }
@@ -111,6 +161,7 @@ export async function renderInvoicePdf(
   diagnostics: RenderDiagnostics = {},
   attempt: RenderAttempt = "primary"
 ) {
+  assertCompatiblePdfReactRuntime();
   const { invoice, customer, sender, bank, qrImage, qrLabel } = props;
   const items = [...(invoice.items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
   const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
@@ -151,12 +202,12 @@ export async function renderInvoicePdf(
           <View style={styles.paymentColumn}>
             <Text style={styles.label}>ZAHLUNGSMÖGLICHKEITEN</Text>
             <Text>Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum.</Text>
-            {qrImage ? <>
+            {qrImage ? <View>
               {/* @react-pdf/renderer Image has no HTML alt prop. The visible label follows it. */}
               {/* eslint-disable-next-line jsx-a11y/alt-text */}
               <Image style={styles.qr} src={qrImage} />
               <Text style={styles.qrLabel}>{qrLabel ?? "Zahlungs-QR-Code"}</Text>
-            </> : null}
+            </View> : null}
           </View>
           <View style={styles.paymentColumn}><Text style={styles.label}>BANKVERBINDUNG</Text><Text>{lines([value(bank, "account_holder"), value(bank, "iban") ? `IBAN: ${value(bank, "iban")}` : "", value(bank, "bic") ? `BIC / SWIFT: ${value(bank, "bic")}` : "", value(bank, "bank_name")])}</Text></View>
         </View>

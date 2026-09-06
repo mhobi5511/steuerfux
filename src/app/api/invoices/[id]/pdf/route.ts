@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { renderInvoicePdfWithOptionalQrFallback } from "@/components/invoices/invoice-pdf-document";
+import {
+  getInvoicePdfReactRuntimeInfo,
+  renderInvoicePdfWithOptionalQrFallback
+} from "@/components/invoices/invoice-pdf-document";
 import {
   createInvoiceAssetDataUrl,
   getInvoiceForView,
@@ -168,7 +171,8 @@ export async function GET(
           console.info("[invoice-pdf] renderer starting", {
             invoiceId,
             attempt,
-            hasQrImage
+            hasQrImage,
+            reactRuntime: getInvoicePdfReactRuntimeInfo()
           });
         },
         onRenderStage(renderStage, attempt, details) {

@@ -23,6 +23,14 @@ type RenderInvoicePdfWithOptionalQrFallback = (
   }
 ) => Promise<{ buffer: Uint8Array; qrOmitted: boolean }>;
 
+type RenderMinimalPdf = () => Promise<Uint8Array>;
+
+type GetInvoicePdfReactRuntimeInfo = () => {
+  reactVersion: string;
+  elementType: string;
+  compatible: boolean;
+};
+
 const fixtureRoot = path.resolve("tmp/pdfs");
 await mkdir(fixtureRoot, { recursive: true });
 const bundleDirectory = await mkdtemp(path.join(fixtureRoot, "test-bundle-"));
@@ -40,10 +48,14 @@ await build({
 });
 const {
   renderInvoicePdf,
-  renderInvoicePdfWithOptionalQrFallback
+  renderInvoicePdfWithOptionalQrFallback,
+  renderMinimalPdf,
+  getInvoicePdfReactRuntimeInfo
 } = await import(pathToFileURL(bundlePath).href) as {
   renderInvoicePdf: RenderInvoicePdf;
   renderInvoicePdfWithOptionalQrFallback: RenderInvoicePdfWithOptionalQrFallback;
+  renderMinimalPdf: RenderMinimalPdf;
+  getInvoicePdfReactRuntimeInfo: GetInvoicePdfReactRuntimeInfo;
 };
 
 after(async () => {
@@ -123,6 +135,17 @@ const sender = {
   city: "Mollis",
   country: "Schweiz"
 };
+
+test("minimal server-side React-PDF renderer creates a valid PDF", async () => {
+  const runtime = getInvoicePdfReactRuntimeInfo();
+  const pdf = await renderMinimalPdf();
+
+  assert.equal(runtime.reactVersion, "18.3.1");
+  assert.equal(runtime.elementType, "Symbol(react.element)");
+  assert.equal(runtime.compatible, true);
+  assert.equal(Buffer.from(pdf).subarray(0, 5).toString("ascii"), "%PDF-");
+  assert.ok(Buffer.byteLength(pdf) > 1_000);
+});
 
 test("renderer creates a valid multi-page A4 PDF without a QR code", async () => {
   const pdf = await renderInvoicePdf({
