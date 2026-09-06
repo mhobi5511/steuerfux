@@ -16,6 +16,13 @@ type RenderInvoicePdf = (props: {
   qrLabel: string | null;
 }) => Promise<Uint8Array>;
 
+type RenderInvoicePdfWithOptionalQrFallback = (
+  props: Parameters<RenderInvoicePdf>[0],
+  diagnostics?: {
+    onOptionalQrError?: (error: unknown) => void;
+  }
+) => Promise<{ buffer: Uint8Array; qrOmitted: boolean }>;
+
 const fixtureRoot = path.resolve("tmp/pdfs");
 await mkdir(fixtureRoot, { recursive: true });
 const bundleDirectory = await mkdtemp(path.join(fixtureRoot, "test-bundle-"));
@@ -31,8 +38,12 @@ await build({
   platform: "node",
   tsconfig: "tsconfig.json"
 });
-const { renderInvoicePdf } = await import(pathToFileURL(bundlePath).href) as {
+const {
+  renderInvoicePdf,
+  renderInvoicePdfWithOptionalQrFallback
+} = await import(pathToFileURL(bundlePath).href) as {
   renderInvoicePdf: RenderInvoicePdf;
+  renderInvoicePdfWithOptionalQrFallback: RenderInvoicePdfWithOptionalQrFallback;
 };
 
 after(async () => {
@@ -167,4 +178,33 @@ test("renderer embeds the generated EPC QR in a German EUR invoice", async () =>
   if (process.env.WRITE_INVOICE_PDF_FIXTURES === "1") {
     await writeFile(path.join(fixtureRoot, "invoice-german-qr.pdf"), pdf);
   }
+});
+
+test("a corrupt optional QR image cannot prevent PDF creation", async () => {
+  let capturedImageError = false;
+  const result = await renderInvoicePdfWithOptionalQrFallback(
+    {
+      invoice: createInvoice(1, "EUR"),
+      customer,
+      sender,
+      bank: {
+        account_holder: "Beispiel Beratung",
+        iban: "DE02120300000000202051",
+        bic: "BYLADEM1001",
+        bank_name: "Beispielbank"
+      },
+      qrImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      qrLabel: "Defekter Test-QR-Code"
+    },
+    {
+      onOptionalQrError() {
+        capturedImageError = true;
+      }
+    }
+  );
+
+  // React-PDF currently handles this truncated PNG internally. If a future
+  // decoder version propagates it, our wrapper must take the no-QR fallback.
+  assert.equal(result.qrOmitted, capturedImageError);
+  assert.equal(Buffer.from(result.buffer).subarray(0, 5).toString("ascii"), "%PDF-");
 });

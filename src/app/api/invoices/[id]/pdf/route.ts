@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { renderInvoicePdf } from "@/components/invoices/invoice-pdf-document";
+import { renderInvoicePdfWithOptionalQrFallback } from "@/components/invoices/invoice-pdf-document";
 import {
   createInvoiceAssetDataUrl,
   getInvoiceForView,
@@ -16,6 +16,32 @@ import { generatePaymentQr } from "@/lib/payment-qr";
 
 export const runtime = "nodejs";
 
+type SafeErrorDetails = {
+  name: string;
+  message: string;
+  stack?: string;
+  cause?: SafeErrorDetails;
+};
+
+function safeErrorDetails(error: unknown, depth = 0): SafeErrorDetails {
+  if (!(error instanceof Error)) {
+    return {
+      name: "NonErrorThrownValue",
+      message: `A non-Error value of type ${typeof error} was thrown.`
+    };
+  }
+
+  const details: SafeErrorDetails = {
+    name: error.name,
+    message: error.message,
+    stack: error.stack
+  };
+  if (error.cause !== undefined && depth < 2) {
+    details.cause = safeErrorDetails(error.cause, depth + 1);
+  }
+  return details;
+}
+
 function value(snapshot: Record<string, unknown> | null | undefined, key: string) {
   return typeof snapshot?.[key] === "string" ? String(snapshot[key]) : "";
 }
@@ -28,24 +54,38 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let invoiceId = "unresolved";
+  let stage = "request-started";
+
   try {
     const { id } = await params;
+    invoiceId = id;
     if (!isUuid(id)) {
       return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
     }
 
-    const invoice = await getInvoiceForView(id);
-    if (!invoice) {
+    stage = "invoice-loading";
+    const loadedInvoice = await getInvoiceForView(id);
+    if (!loadedInvoice) {
       return NextResponse.json({ error: "Rechnung wurde nicht gefunden." }, { status: 404 });
     }
+    const { invoice, access } = loadedInvoice;
+    console.info("[invoice-pdf] invoice loaded", {
+      invoiceId,
+      currency: invoice.currency,
+      itemCount: invoice.items?.length ?? 0
+    });
 
+    stage = "payment-data-preparing";
     const customer = invoice.customer_snapshot as Record<string, unknown>;
     const sender = invoice.sender_snapshot as Record<string, unknown>;
     const snapshotBank = invoice.bank_snapshot as Record<string, unknown> | null;
     const hasBankSnapshot = hasStoredInvoiceSnapshot(snapshotBank);
     // Older invoices without a bank snapshot intentionally retain the existing
     // compatibility fallback, scoped to this invoice's Buchhaltung.
-    const paymentFallback = hasBankSnapshot ? null : await getInvoicePaymentFallback(invoice);
+    const paymentFallback = hasBankSnapshot
+      ? null
+      : await getInvoicePaymentFallback(invoice, access);
     const bank = resolveInvoiceBankSnapshot(
       snapshotBank,
       paymentFallback?.bank as Record<string, unknown> | null | undefined
@@ -70,10 +110,12 @@ export async function GET(
     let qrUnavailable = false;
 
     try {
+      stage = "qr-preparing";
       if (qrMode === "uploaded" && uploadedQrPath) {
         paymentQrImage = await createInvoiceAssetDataUrl(
           uploadedQrPath,
-          invoice.buchhaltung_id
+          invoice.buchhaltung_id,
+          access
         );
         paymentQrLabel = "Zahlungs-QR-Code";
         qrUnavailable = !paymentQrImage;
@@ -95,17 +137,61 @@ export async function GET(
       }
     } catch (error) {
       qrUnavailable = qrMode !== "none";
-      console.warn("invoice QR generation error:", error);
+      console.warn("[invoice-pdf] QR preparation failed", {
+        invoiceId,
+        qrMode,
+        ...safeErrorDetails(error)
+      });
     }
-
-    const pdfBuffer = await renderInvoicePdf({
-      invoice,
-      customer,
-      sender,
-      bank,
-      qrImage: paymentQrImage,
-      qrLabel: paymentQrLabel
+    console.info("[invoice-pdf] QR prepared", {
+      invoiceId,
+      qrMode,
+      included: Boolean(paymentQrImage),
+      unavailable: qrUnavailable
     });
+
+    stage = "renderer-starting";
+    const renderResult = await renderInvoicePdfWithOptionalQrFallback(
+      {
+        invoice,
+        customer,
+        sender,
+        bank,
+        qrImage: paymentQrImage,
+        qrLabel: paymentQrLabel
+      },
+      {
+        onAttemptStarting(attempt, hasQrImage) {
+          stage = attempt === "primary"
+            ? "renderer-primary-starting"
+            : "renderer-without-optional-qr-starting";
+          console.info("[invoice-pdf] renderer starting", {
+            invoiceId,
+            attempt,
+            hasQrImage
+          });
+        },
+        onRenderStage(renderStage, attempt, details) {
+          stage = `${attempt}:${renderStage}`;
+          console.info(`[invoice-pdf] ${renderStage}`, {
+            invoiceId,
+            attempt,
+            ...details
+          });
+        },
+        onOptionalQrError(error) {
+          qrUnavailable = true;
+          console.warn("[invoice-pdf] optional QR render failed; retrying without QR", {
+            invoiceId,
+            ...safeErrorDetails(error)
+          });
+        }
+      }
+    );
+    const pdfBuffer = renderResult.buffer;
+    qrUnavailable ||= renderResult.qrOmitted;
+
+    stage = "response-building";
     const filename = createInvoicePdfFilename(
       invoice.invoice_number,
       value(customer, "company_name")
@@ -123,7 +209,14 @@ export async function GET(
     };
     if (qrUnavailable) headers["X-Invoice-Pdf-Warning"] = "qr-unavailable";
 
-    return new NextResponse(new Uint8Array(pdfBuffer), { headers });
+    const response = new NextResponse(new Uint8Array(pdfBuffer), { headers });
+    console.info("[invoice-pdf] response ready", {
+      invoiceId,
+      byteLength: pdfBuffer.byteLength,
+      disposition: shouldDownload ? "attachment" : "inline",
+      qrOmitted: renderResult.qrOmitted
+    });
+    return response;
   } catch (error) {
     if (error instanceof InvoiceAccessError && error.code === "UNAUTHENTICATED") {
       return NextResponse.json(
@@ -138,7 +231,13 @@ export async function GET(
       );
     }
 
-    console.error("invoice PDF generation error:", error);
+    console.error("[invoice-pdf] generation failed", {
+      invoiceId,
+      stage,
+      runtime: "nodejs",
+      nodeVersion: process.version,
+      ...safeErrorDetails(error)
+    });
     return NextResponse.json(
       { error: "PDF konnte nicht erstellt werden." },
       { status: 500 }

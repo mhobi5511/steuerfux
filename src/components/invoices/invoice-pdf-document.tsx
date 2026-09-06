@@ -23,6 +23,23 @@ type Props = {
   qrLabel: string | null;
 };
 
+type RenderAttempt = "primary" | "without-optional-qr";
+
+type RenderDiagnostics = {
+  onAttemptStarting?: (attempt: RenderAttempt, hasQrImage: boolean) => void;
+  onRenderStage?: (
+    stage: "renderToBuffer starting" | "renderToBuffer completed",
+    attempt: RenderAttempt,
+    details?: { byteLength: number }
+  ) => void;
+  onOptionalQrError?: (error: unknown) => void;
+};
+
+export type InvoicePdfRenderResult = {
+  buffer: Awaited<ReturnType<typeof renderToBuffer>>;
+  qrOmitted: boolean;
+};
+
 const styles = StyleSheet.create({
   page: { paddingTop: 48, paddingHorizontal: 48, paddingBottom: 68, fontFamily: "Helvetica", fontSize: 10, color: "#0f172a" },
   top: { flexDirection: "row", justifyContent: "space-between", flexShrink: 0 },
@@ -63,6 +80,18 @@ function lines(values: Array<string | null | undefined>) {
   return values.filter(Boolean).join("\n");
 }
 
+function assertValidPdfBuffer(buffer: Uint8Array) {
+  const hasPdfSignature = buffer.byteLength >= 5
+    && buffer[0] === 0x25
+    && buffer[1] === 0x50
+    && buffer[2] === 0x44
+    && buffer[3] === 0x46
+    && buffer[4] === 0x2d;
+  if (!hasPdfSignature) {
+    throw new Error("The invoice renderer returned an invalid PDF buffer.");
+  }
+}
+
 function AddressBox({ title, children }: { title: string; children: ReactNode }) {
   return <View style={styles.address}><Text style={styles.label}>{title}</Text><View style={styles.box}>{children}</View></View>;
 }
@@ -77,7 +106,11 @@ function ItemRow({ item, invoice, isTaxExempt }: { item: InvoiceItem; invoice: I
   </View>;
 }
 
-export async function renderInvoicePdf(props: Props) {
+export async function renderInvoicePdf(
+  props: Props,
+  diagnostics: RenderDiagnostics = {},
+  attempt: RenderAttempt = "primary"
+) {
   const { invoice, customer, sender, bank, qrImage, qrLabel } = props;
   const items = [...(invoice.items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
   const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
@@ -137,5 +170,38 @@ export async function renderInvoicePdf(props: Props) {
       </Page>
     </Document>
   );
-  return renderToBuffer(document);
+  diagnostics.onRenderStage?.("renderToBuffer starting", attempt);
+  const buffer = await renderToBuffer(document);
+  assertValidPdfBuffer(buffer);
+  diagnostics.onRenderStage?.("renderToBuffer completed", attempt, {
+    byteLength: buffer.byteLength
+  });
+  return buffer;
+}
+
+export async function renderInvoicePdfWithOptionalQrFallback(
+  props: Props,
+  diagnostics: RenderDiagnostics = {}
+): Promise<InvoicePdfRenderResult> {
+  diagnostics.onAttemptStarting?.("primary", Boolean(props.qrImage));
+
+  try {
+    return {
+      buffer: await renderInvoicePdf(props, diagnostics, "primary"),
+      qrOmitted: false
+    };
+  } catch (error) {
+    if (!props.qrImage) throw error;
+
+    diagnostics.onOptionalQrError?.(error);
+    diagnostics.onAttemptStarting?.("without-optional-qr", false);
+    return {
+      buffer: await renderInvoicePdf(
+        { ...props, qrImage: null, qrLabel: null },
+        diagnostics,
+        "without-optional-qr"
+      ),
+      qrOmitted: true
+    };
+  }
 }
