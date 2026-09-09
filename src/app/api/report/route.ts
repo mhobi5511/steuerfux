@@ -270,9 +270,10 @@ export async function GET(request: Request) {
                   <tr><th>Position</th><th>Wert</th></tr>
                 </thead>
                 <tbody>
-                  ${metricRow("Rechnungssumme", formatCurrency(data.kpis.incomeTotal, data.reportingCurrency))}
-                  ${metricRow("Umsatz", formatCurrency(data.kpis.paymentReceivedTotal, data.reportingCurrency), true)}
-                  ${metricRow("Offene Einnahmen", formatCurrency(data.kpis.openIncomeTotal, data.reportingCurrency))}
+                  ${metricRow("Rechnungssumme (nur Berichtswährung)", formatCurrency(data.kpis.incomeTotal, data.reportingCurrency))}
+                  ${metricRow("Eingegangene Einnahmen", formatCurrency(data.kpis.paymentReceivedTotal, data.reportingCurrency), true)}
+                  ${metricRow("Aktuell offene Rechnungen CHF", formatCurrency(data.kpis.openInvoiceAmounts.CHF, "CHF"))}
+                  ${metricRow("Aktuell offene Rechnungen EUR", formatCurrency(data.kpis.openInvoiceAmounts.EUR, "EUR"))}
                   ${metricRow("Gebühren", formatCurrency(data.kpis.feeTotal, data.reportingCurrency))}
                   ${metricRow("Fahrt-, Reise- und Verpflegungskosten", formatCurrency(travelTotal, data.reportingCurrency))}
                   ${metricRow("Ausgaben", formatCurrency(data.kpis.deductibleExpensesTotal + data.kpis.depreciationTotal, data.reportingCurrency))}
@@ -290,7 +291,7 @@ export async function GET(request: Request) {
                 </thead>
                 <tbody>
                   ${metricRow("Ausgaben", formatCurrency(data.kpis.deductibleExpensesTotal, data.reportingCurrency))}
-                  ${metricRow("Bank- & Wechselgebühren", formatCurrency(data.kpis.feeTotal, data.reportingCurrency))}
+                  ${metricRow("Zusätzlich zum Nettozahlungseingang abzuziehende Gebühren", formatCurrency(data.kpis.deductibleFeeTotal, data.reportingCurrency))}
                   ${metricRow("Fahrtkosten", formatCurrency(data.kpis.tripDrivingTotal, data.reportingCurrency))}
                   ${metricRow("Reise & Verpflegung", formatCurrency(data.kpis.tripTravelTotal, data.reportingCurrency))}
                   ${metricRow("Abschreibungen", formatCurrency(data.kpis.depreciationTotal, data.reportingCurrency))}

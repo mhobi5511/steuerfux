@@ -1,4 +1,7 @@
 import { cache } from "react";
+import { readLedgerPages, readScopedPayments } from "@/lib/ledger-query";
+import { reconcileInvoice, receivedIncomeAmount } from "@/lib/invoice-accounting";
+import type { Invoice, CurrencyCode } from "@/lib/db-types";
 import { requireUser } from "@/lib/auth";
 import { basePerDiemRates } from "@/lib/per-diem";
 import {
@@ -117,16 +120,15 @@ export async function getModuleData(year?: number, datasets: ModuleDataset[] = a
   const activeId = activeBuchhaltung?.id ?? "00000000-0000-0000-0000-000000000000";
   const emptyResult = () => Promise.resolve({ data: [] as Record<string, unknown>[] });
 
-  const [incomes, expenses, fees, trips, depreciations, reimbursements, invoices] =
+  const [incomes, expenses, fees, trips, depreciations, reimbursements, invoices, invoicePayments] =
     await Promise.all([
-    selected.has("incomes") ? supabase
+    selected.has("incomes") ? readLedgerPages((start, end) => supabase
       .from("incomes")
       .select("*")
       .eq("user_id", user.id)
       .eq("buchhaltung_id", activeId)
-      .gte("invoice_date", from)
-      .lte("invoice_date", to)
-      .order("invoice_date", { ascending: false }) : emptyResult(),
+      .or(`and(invoice_date.gte.${from},invoice_date.lte.${to}),and(payment_date.gte.${from},payment_date.lte.${to})`)
+      .order("invoice_date", { ascending: false }).order("id").range(start, end)).then((data) => ({ data })) : emptyResult(),
     selected.has("expenses") ? supabase
       .from("expenses")
       .select("*, receipts(*)")
@@ -166,14 +168,18 @@ export async function getModuleData(year?: number, datasets: ModuleDataset[] = a
       .gte("reimbursement_date", from)
       .lte("reimbursement_date", to)
       .order("reimbursement_date", { ascending: false }) : emptyResult(),
-    selected.has("invoices") ? supabase
+    selected.has("invoices") ? readLedgerPages((start, end) => supabase
       .from("invoices")
       .select("*")
       .eq("user_id", user.id)
       .eq("buchhaltung_id", activeId)
-      .gte("issue_date", from)
-      .lte("issue_date", to) : emptyResult()
+      .lte("issue_date", to).order("id").range(start, end)).then((data) => ({ data })) : emptyResult(),
+    selected.has("invoices") ? readScopedPayments(supabase, user.id, activeId) : Promise.resolve([])
   ]);
+
+  for (const result of [incomes, expenses, fees, trips, depreciations, reimbursements, invoices]) {
+    if ("error" in result && result.error) throw new Error("Buchhaltungsdaten konnten nicht vollständig geladen werden. Bitte erneut versuchen.");
+  }
 
   return {
     businessYear,
@@ -189,7 +195,7 @@ export async function getModuleData(year?: number, datasets: ModuleDataset[] = a
     trips: safeArray(trips.data),
     depreciations: safeArray(depreciations.data),
     reimbursements: safeArray(reimbursements.data),
-    invoices: safeArray(invoices.data)
+    invoices: safeArray(invoices.data).map((row) => ({ ...row, payments: invoicePayments.filter((payment) => payment.invoice_id === row.id) }))
   };
 }
 
@@ -197,14 +203,12 @@ export async function getDashboardData(year?: number) {
   const data = await getModuleData(year);
   const reportingCurrency = data.settings?.reporting_currency ?? "EUR";
 
-  const incomeTotal = data.incomes.reduce((sum, row) => sum + (row.invoice_amount_reporting ?? 0), 0);
-  const paymentReceivedTotal = data.incomes.reduce(
-    (sum, row) => sum + (row.payment_received_reporting ?? 0),
-    0
-  );
-  const openIncomeTotal = data.incomes
-    .filter((row) => !isIncomePaid(row.status))
-    .reduce((sum, row) => sum + (row.difference_reporting ?? row.invoice_amount_reporting ?? 0), 0);
+  const incomeTotal = data.invoices.filter((row) => String(row.issue_date).startsWith(String(data.businessYear)) && row.currency === reportingCurrency && !["Entwurf", "Storniert"].includes(row.status)).reduce((sum, row) => sum + Number(row.gross_total_cents) / 100, 0)
+    + data.incomes.filter((row) => !row.invoice_id && String(row.invoice_date).startsWith(String(data.businessYear)))
+      .reduce((sum, row) => sum + Number(row.invoice_amount_reporting ?? 0), 0);
+  const paymentReceivedTotal = data.incomes.reduce((sum, row) => sum + receivedIncomeAmount(row, data.businessYear), 0);
+  const standaloneOpenIncomeTotal = data.incomes.filter((row) => !row.invoice_id && !isIncomePaid(row.status))
+    .reduce((sum, row) => sum + Number(row.difference_reporting ?? row.invoice_amount_reporting ?? 0), 0);
 
   const expensesTotal = data.expenses.reduce((sum, row) => sum + (row.amount_reporting ?? 0), 0);
   const clientShareTotal = data.expenses.reduce(
@@ -225,7 +229,9 @@ export async function getDashboardData(year?: number) {
     (sum, row) => sum + (row.effective_amount_reporting ?? row.amount_reporting ?? 0),
     0
   );
-  const feeTotal = data.fees.reduce((sum, row) => sum + (row.amount_reporting ?? 0), 0);
+  const feeTotal = data.fees.reduce((sum, row) => sum + Number(row.amount_reporting ?? 0), 0);
+  // New payment deductions are already excluded from actual cash received.
+  const deductibleFeeTotal = data.fees.filter((row) => !row.invoice_payment_id).reduce((sum, row) => sum + Number(row.amount_reporting ?? 0), 0);
   const tripDrivingTotal = data.trips.reduce(
     (sum, row) => sum + (row.driving_deduction_reporting ?? 0),
     0
@@ -245,36 +251,32 @@ export async function getDashboardData(year?: number) {
     )
     .reduce((sum, row) => sum + (row.yearly_amount_reporting ?? 0), 0);
   const today = new Date().toISOString().slice(0, 10);
-  const openInvoices = data.invoices.filter((invoice) =>
-    ["Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status)
-  );
-  const overdueInvoices = openInvoices.filter(
-    (invoice) =>
-      invoice.due_date < today &&
-      (invoice.gross_total_cents ?? 0) > (invoice.paid_total_cents ?? 0)
-  );
-  const openInvoiceAmount = openInvoices.reduce(
-    (sum, invoice) =>
-      sum + Math.max((invoice.gross_total_cents ?? 0) - (invoice.paid_total_cents ?? 0), 0) / 100,
-    0
-  );
+  const invoiceStates = data.invoices.map((invoice) => ({ invoice: invoice as Invoice, state: reconcileInvoice(invoice as Invoice) }));
+  const openInvoices = invoiceStates.filter(({ state }) => state.remainingCents > 0);
+  const overdueInvoices = openInvoices.filter(({ invoice }) => invoice.due_date < today);
+  const openInvoiceAmounts: Record<CurrencyCode, number> = { CHF: 0, EUR: 0 };
+  for (const { invoice, state } of openInvoices) openInvoiceAmounts[invoice.currency as CurrencyCode] += state.remainingCents / 100;
+  // Never sum EUR face values into CHF, or invent an exchange rate for receivables.
+  const openInvoiceAmount = openInvoiceAmounts[reportingCurrency as CurrencyCode];
+  const openIncomeTotal = standaloneOpenIncomeTotal + openInvoiceAmount;
   const currentMonth = today.slice(0, 7);
   const invoicesIssuedThisMonth = data.invoices.filter((invoice) =>
     String(invoice.issue_date).startsWith(currentMonth)
   ).length;
-  const invoicesPaidThisMonth = data.invoices.filter(
-    (invoice) => invoice.status === "Bezahlt" && String(invoice.updated_at).startsWith(currentMonth)
+  const invoicesPaidThisMonth = invoiceStates.filter(({ invoice, state }) =>
+    state.status === "Bezahlt" && (invoice.payments ?? []).reduce((latest, payment) =>
+      payment.payment_date > latest ? payment.payment_date : latest, "").startsWith(currentMonth)
   ).length;
   const deductibleCostTotal =
-    deductibleExpensesTotal + feeTotal + tripDrivingTotal + tripTravelTotal + depreciationTotal;
-  const profitBeforeDeductions = paymentReceivedTotal - effectiveExpensesTotal - feeTotal;
+    deductibleExpensesTotal + deductibleFeeTotal + tripDrivingTotal + tripTravelTotal + depreciationTotal;
+  const profitBeforeDeductions = paymentReceivedTotal - effectiveExpensesTotal - deductibleFeeTotal;
   const taxRelevantProfit = paymentReceivedTotal - deductibleCostTotal;
 
   const monthly = Array.from({ length: 12 }, (_, index) => {
     const month = index + 1;
     const incomes = data.incomes
-      .filter((row) => new Date(row.invoice_date).getMonth() + 1 === month)
-      .reduce((sum, row) => sum + (row.payment_received_reporting ?? 0), 0);
+      .filter((row) => row.payment_date && new Date(row.payment_date).getMonth() + 1 === month)
+      .reduce((sum, row) => sum + receivedIncomeAmount(row, data.businessYear), 0);
     const costs =
       data.expenses
         .filter((row) => new Date(row.expense_date).getMonth() + 1 === month)
@@ -285,6 +287,7 @@ export async function getDashboardData(year?: number) {
           0
         ) +
       data.fees
+        .filter((row) => !row.invoice_payment_id)
         .filter((row) => new Date(row.fee_date).getMonth() + 1 === month)
         .reduce((sum, row) => sum + (row.amount_reporting ?? 0), 0) +
       data.trips
@@ -342,6 +345,8 @@ export async function getDashboardData(year?: number) {
       openInvoices: openInvoices.length,
       overdueInvoices: overdueInvoices.length,
       openInvoiceAmount,
+      openInvoiceAmounts,
+      deductibleFeeTotal,
       invoicesIssuedThisMonth,
       invoicesPaidThisMonth
     },

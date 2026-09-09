@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { InvoicePaymentForm } from "@/components/invoices/invoice-payment-form";
+import { reconcileInvoice, paymentStatusLabel } from "@/lib/invoice-accounting";
 import { useMemo, useState, useTransition } from "react";
 import {
   cancelInvoice,
   duplicateInvoice,
   issueInvoice,
-  recordInvoicePayment,
   saveInvoiceDraft,
   sendInvoiceEmail
 } from "@/app/actions/invoices";
@@ -58,7 +59,7 @@ const emptyItem: DraftItem = {
 function isOverdue(invoice: Invoice) {
   return (
     new Date(invoice.due_date) < new Date(new Date().toISOString().slice(0, 10)) &&
-    invoice.gross_total_cents > invoice.paid_total_cents &&
+    reconcileInvoice(invoice).remainingCents > 0 &&
     !["Bezahlt", "Storniert", "Entwurf"].includes(invoice.status)
   );
 }
@@ -159,7 +160,11 @@ export function InvoiceModule({
   const usesUploadedPaymentQr = Boolean(useUploadedQr && selectedBankAccount?.qr_storage_path);
   const usesAutomaticPaymentQr = Boolean(paymentQrEnabled && currency === "EUR" && hasPaymentBank);
 
-  const visibleInvoices = invoices.filter((invoice) => {
+  const [search, setSearch] = useState("");
+  const searchedInvoices = invoices.filter((invoice) => `${invoice.invoice_number ?? ""} ${snapshotValue(invoice.customer_snapshot, "company_name")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const cancelledInvoices = searchedInvoices.filter((invoice) => invoice.status === "Storniert");
+  const visibleInvoices = searchedInvoices.filter((invoice) => {
+    if (invoice.status === "Storniert") return false;
     if (filter === "Alle") return true;
     if (filter === "Offen") return ["Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status);
     if (filter === "Überfällig") return isOverdue(invoice);
@@ -512,7 +517,7 @@ export function InvoiceModule({
           {!readOnly ? <Link href="/rechnungen?neu=1"><Button type="button">Neue Rechnung</Button></Link> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {["Alle", "Entwurf", "Offen", "Überfällig", "Bezahlt", "Storniert"].map((item) => (
+          {["Alle", "Entwurf", "Offen", "Überfällig", "Bezahlt"].map((item) => (
             <Link
               key={item}
               href={`/rechnungen?filter=${encodeURIComponent(item)}`}
@@ -522,6 +527,7 @@ export function InvoiceModule({
             </Link>
           ))}
         </div>
+        <Field label="Rechnung oder Empfänger suchen"><Input value={search} onChange={(e) => setSearch(e.target.value)} type="search" /></Field>
         <div className="overflow-x-auto">
           <table className="min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
@@ -546,8 +552,14 @@ export function InvoiceModule({
                       {formatDate(invoice.due_date)}
                     </span>
                   </td>
-                  <td className="px-3 py-3">{formatCents(invoice.gross_total_cents, invoice.currency)}</td>
-                  <td className="px-3 py-3">{isOverdue(invoice) ? "Überfällig" : invoice.status}</td>
+                  <td className="px-3 py-3">{formatCents(invoice.gross_total_cents, invoice.currency)}
+                    <p className="mt-1 text-xs">Bezahlt: {formatCents(reconcileInvoice(invoice).receivedCents, invoice.currency)}</p>
+                    <p className="text-xs">Offen: {formatCents(reconcileInvoice(invoice).remainingCents, invoice.currency)}</p>
+                    {reconcileInvoice(invoice).feeCents > 0 ? <p className="text-xs">Ausgleich: {formatCents(reconcileInvoice(invoice).feeCents, invoice.currency)}</p> : null}
+                    {reconcileInvoice(invoice).overpaidCents > 0 ? <p className="text-xs text-amber-700">Überzahlung: {formatCents(reconcileInvoice(invoice).overpaidCents, invoice.currency)}</p> : null}
+                    {reconcileInvoice(invoice).legacy ? <p className="text-xs text-amber-700">Altbestand: Abstimmung erforderlich</p> : null}
+                  </td>
+                  <td className="px-3 py-3">{paymentStatusLabel(reconcileInvoice(invoice).status)}{isOverdue(invoice) ? " · Überfällig" : ""}</td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-2">
                       <InvoicePdfActions
@@ -572,27 +584,17 @@ export function InvoiceModule({
                           <Button type="submit" variant="ghost">Duplizieren</Button>
                         </form>
                       ) : null}
-                      {!readOnly && ["Versendet", "Teilweise bezahlt"].includes(invoice.status) ? (
-                        <details className="min-w-[240px]">
-                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{invoice.status === "Versendet" ? "Als bezahlt markieren" : "Zahlung erfassen"}</summary>
-                          <form action={submitAction(recordInvoicePayment)} className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
-                            <input name="invoice_id" type="hidden" value={invoice.id} />
-                            <Input type="text" readOnly value={`Rechnungsbetrag: ${formatCents(invoice.gross_total_cents, invoice.currency)}`} />
-                            <Input name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
-                            <Input name="amount" type="number" step="0.01" defaultValue={(invoice.gross_total_cents - invoice.paid_total_cents) / 100} />
-                            <Select name="currency" defaultValue={invoice.currency}><option value="EUR">EUR</option><option value="CHF">CHF</option></Select>
-                            <Input name="exchange_rate" type="number" step="0.0001" defaultValue="1" />
-                            <Input name="fee" type="number" step="0.01" placeholder="Gebühr / Zahlungsdifferenz optional" />
-                            <Select name="settle_difference" defaultValue="false"><option value="false">Als Teilzahlung erfassen</option><option value="true">Restbetrag als Gebühr ausgleichen</option></Select>
-                            <Textarea name="note" placeholder="Notiz optional" />
-                            <Button type="submit">Speichern</Button>
-                          </form>
-                        </details>
+                      {!readOnly && !["Entwurf", "Storniert"].includes(invoice.status) ? (
+                        <InvoicePaymentForm invoice={invoice} reportingCurrency={defaultCurrency} />
                       ) : null}
-                      {!readOnly && ["Entwurf", "Ausgestellt", "Versendet"].includes(invoice.status) ? (
-                        <form action={submitAction(cancelInvoice)}>
+                      {!readOnly && ["Entwurf", "Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status) ? (
+                        <form action={submitAction(cancelInvoice)} onSubmit={(event) => {
+                          if (!window.confirm((invoice.payments?.length || invoice.paid_total_cents > 0) ? "Es bestehen Zahlungen. Die Stornierung ist bis zur buchhalterischen Klärung gesperrt. Es werden keine Einnahmen rückgebucht. Prüfung fortsetzen?" : "Rechnung wirklich stornieren? Die historische Rechnung bleibt erhalten.")) event.preventDefault();
+                        }}>
+                          <input name="buchhaltung_id" type="hidden" value={invoice.buchhaltung_id} />
+                          <input name="confirm" type="hidden" value="true" />
                           <input name="id" type="hidden" value={invoice.id} />
-                          <Button type="submit" variant="danger">Stornieren</Button>
+                          <Button type="submit" disabled={pending} variant="danger">Stornieren</Button>
                         </form>
                       ) : null}
                       {!readOnly && invoice.invoice_number && ["Ausgestellt", "Versendet"].includes(invoice.status) ? (
@@ -607,11 +609,20 @@ export function InvoiceModule({
                           </form>
                         </details>
                       ) : null}
-                      {invoice.status === "Bezahlt" ? (
+                      {(invoice.payments?.length ?? 0) > 0 ? (
                         <details className="min-w-[220px]">
                           <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Zahlungen ansehen</summary>
                           <div className="mt-2 space-y-1 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                            {(invoice.payments ?? []).map((payment) => <p key={payment.id}>{formatDate(payment.payment_date)} · {formatCents(payment.amount_cents, payment.currency)}</p>)}
+                            {[...(invoice.payments ?? [])].sort((a, b) => a.payment_date.localeCompare(b.payment_date)).map((payment) => <div key={payment.id} className="border-b py-2">
+                              <p>{formatDate(payment.payment_date)} · {formatCents(payment.amount_cents, payment.currency)}</p>
+                              {payment.fee_cents > 0 ? <p>Ausgleich: {formatCents(payment.fee_cents, payment.currency)}</p> : null}
+                              {payment.amount_reporting != null ? <p>{payment.reporting_currency} {Number(payment.amount_reporting).toFixed(2)} · Kurs {payment.exchange_rate}</p> : null}
+                              {payment.note ? <p>{payment.note}</p> : null}
+                              {payment.income_id ? <Link href="/einnahmen">Einnahme: {payment.income_id}</Link> : <p>Altbestand ohne eindeutige Einnahmen-Verknüpfung</p>}
+                            </div>)}
+                            <p>Gesamt bezahlt: {formatCents(reconcileInvoice(invoice).receivedCents, invoice.currency)}</p>
+                            <p>Offen: {formatCents(reconcileInvoice(invoice).remainingCents, invoice.currency)}</p>
+                            <p>Status: {paymentStatusLabel(reconcileInvoice(invoice).status)}</p>
                           </div>
                         </details>
                       ) : null}
@@ -626,7 +637,16 @@ export function InvoiceModule({
           </table>
         </div>
       </Card>
-
+      <Card>
+        <details open={filter === "Storniert" ? true : undefined}>
+          <summary className="cursor-pointer font-semibold">Stornierte Rechnungen ({cancelledInvoices.length})</summary>
+          <div className="mt-4 space-y-4">{cancelledInvoices.map((invoice) => <div key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 border-t py-3">
+            <p>{invoice.invoice_number ?? "Entwurf"} · {snapshotValue(invoice.customer_snapshot, "company_name")} · {formatDate(invoice.issue_date)} · {formatCents(invoice.gross_total_cents, invoice.currency)} · Storniert</p>
+            <InvoicePdfActions invoiceId={invoice.id} invoiceNumber={invoice.invoice_number} recipientName={snapshotValue(invoice.customer_snapshot, "company_name")} />
+            {(invoice.payments ?? []).map((payment) => <p key={payment.id}>{formatDate(payment.payment_date)} · Zahlung {formatCents(payment.amount_cents, payment.currency)} · {payment.note}</p>)}
+          </div>)}</div>
+        </details>
+      </Card>
     </div>
   );
 }

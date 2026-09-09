@@ -1,3 +1,4 @@
+import { readLedgerPages, readScopedPayments } from "@/lib/ledger-query";
 import { getAccountingContext } from "@/lib/data";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
@@ -34,19 +35,19 @@ export async function getInvoiceModuleData({
     };
   }
 
-  const [customers, invoices, invoiceSettings, bankAccounts] = await Promise.all([
+  const [customers, invoices, invoiceSettings, bankAccounts, payments] = await Promise.all([
     includeCustomers ? supabase
       .from("customers")
       .select("*")
       .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
       .order("company_name", { ascending: true }) : Promise.resolve({ data: [] }),
-    includeInvoices ? supabase
+    includeInvoices ? readLedgerPages((from, to) => supabase
       .from("invoices")
-      .select("*, invoice_items(*), invoice_payments(*)")
+      .select("*, invoice_items(*)")
       .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
-      .order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
+      .order("created_at", { ascending: false }).order("id").range(from, to)).then((data) => ({ data })) : Promise.resolve({ data: [] }),
     supabase
       .from("invoice_settings")
       .select("*")
@@ -59,8 +60,13 @@ export async function getInvoiceModuleData({
       .eq("user_id", user.id)
       .eq("buchhaltung_id", activeBuchhaltung.id)
       .order("is_default", { ascending: false })
-      .order("label", { ascending: true })
+      .order("label", { ascending: true }),
+    includeInvoices ? readScopedPayments(supabase, user.id, activeBuchhaltung.id) : Promise.resolve([])
   ]);
+
+  for (const result of [customers, invoices, invoiceSettings, bankAccounts]) {
+    if ("error" in result && result.error) throw new Error("Rechnungsdaten konnten nicht vollständig geladen werden. Bitte erneut versuchen.");
+  }
 
   return {
     settings,
@@ -69,7 +75,7 @@ export async function getInvoiceModuleData({
     invoices: (invoices.data ?? []).map((invoice) => ({
       ...invoice,
       items: invoice.invoice_items ?? [],
-      payments: invoice.invoice_payments ?? []
+      payments: payments.filter((payment) => payment.invoice_id === invoice.id)
     })) as Invoice[],
     invoiceSettings: invoiceSettings.data as InvoiceSettings | null,
     bankAccounts: (bankAccounts.data ?? []) as BankAccount[]
@@ -103,11 +109,12 @@ export async function getInvoiceForView(id: string) {
     throw new InvoiceAccessError("LOAD_FAILED");
   }
   if (!data) return null;
+  const payments = await readScopedPayments(supabase, user.id, data.buchhaltung_id);
   return {
     invoice: {
       ...data,
       items: data.invoice_items ?? [],
-      payments: data.invoice_payments ?? []
+      payments: payments.filter((payment) => payment.invoice_id === data.id)
     } as Invoice,
     access: {
       supabase,

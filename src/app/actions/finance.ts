@@ -359,6 +359,10 @@ export async function upsertIncome(formData: FormData): Promise<ActionResult> {
   );
   const differenceReporting = roundMoney(invoiceAmountReporting - paymentReceivedReporting);
   const incomeId = String(formData.get("id") ?? "");
+  if (incomeId) {
+    const { data: existing, error } = await supabase.from("incomes").select("invoice_id").eq("id", incomeId).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id).maybeSingle();
+    if (error || !existing || existing.invoice_id) return { error: "Verknüpfte Rechnungsbuchungen sind geschützt. Bitte den Rechnungsablauf verwenden." };
+  }
   const exchangeRateSource = values.exchange_rate_manual ? "manuell" : "Frankfurter / ECB";
 
   const payload = {
@@ -447,7 +451,10 @@ export async function deleteIncome(formData: FormData) {
   const { supabase, user, activeBuchhaltung, writeError } = await getActionContext(true);
   if (writeError) return;
   const id = String(formData.get("id") ?? "");
-  await supabase.from("incomes").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  const { data: existing, error: lookupError } = await supabase.from("incomes").select("invoice_id").eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id).maybeSingle();
+  if (lookupError || !existing || existing.invoice_id) return;
+  const { error } = await supabase.from("incomes").delete().eq("id", id).eq("user_id", user.id).eq("buchhaltung_id", activeBuchhaltung!.id);
+  if (error) return;
   await supabase
     .from("bank_fees")
     .delete()

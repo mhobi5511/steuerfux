@@ -3,12 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { assertWritableBuchhaltung, getSelectedBuchhaltung } from "@/lib/buchhaltungen";
-import { convertToReportingCurrency, roundMoney } from "@/lib/currency";
+import { fetchHistoricalChfEurRate } from "@/lib/currency";
+import { z } from "zod";
 import {
   calculateDueDate,
   calculateInvoiceItem,
-  fromCents,
-  toCents,
   type InvoiceItemInput
 } from "@/lib/invoice-utils";
 import {
@@ -21,11 +20,10 @@ import type {
   BusinessCountry,
   CurrencyCode,
   Customer,
-  Invoice,
   InvoiceSettings
 } from "@/lib/db-types";
 
-type ActionResult = { success?: string; error?: string; invoiceId?: string; customerId?: string };
+type ActionResult = { rejected?: boolean; success?: string; error?: string; invoiceId?: string; customerId?: string };
 
 async function getInvoiceContext(writable = false) {
   const { supabase, user } = await requireUser();
@@ -228,74 +226,6 @@ function safeUploadName(name: string) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80) || "qr-code";
-}
-
-async function ensureOpenIncomeForInvoice({
-  supabase,
-  userId,
-  buchhaltungId,
-  reportingCurrency,
-  invoice
-}: {
-  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"];
-  userId: string;
-  buchhaltungId: string;
-  reportingCurrency: CurrencyCode;
-  invoice: Invoice;
-}) {
-  const { data: existingIncome } = await supabase
-    .from("incomes")
-    .select("id")
-    .eq("invoice_id", invoice.id)
-    .eq("user_id", userId)
-    .eq("buchhaltung_id", buchhaltungId)
-    .maybeSingle();
-  if (existingIncome?.id) return existingIncome.id;
-
-  const invoiceAmountOriginal = fromCents(invoice.gross_total_cents);
-  const invoiceAmountReporting = convertToReportingCurrency(
-    invoiceAmountOriginal,
-    invoice.currency,
-    reportingCurrency,
-    1
-  );
-  const customer = invoice.customer_snapshot as Record<string, string>;
-  const { data: income, error } = await supabase
-    .from("incomes")
-    .insert({
-      user_id: userId,
-      buchhaltung_id: buchhaltungId,
-      invoice_id: invoice.id,
-      invoice_date: invoice.issue_date,
-      payment_date: null,
-      customer_project: `${invoice.invoice_number ?? "Rechnung"} · ${customer.company_name ?? "Kunde"}`,
-      category: "Rechnung",
-      invoice_amount_original: invoiceAmountOriginal,
-      payment_received_original: 0,
-      currency: invoice.currency,
-      tax_mode: "BRUTTO",
-      exchange_rate: 1,
-      exchange_rate_source: "Rechnung",
-      exchange_rate_manual: false,
-      reporting_currency: reportingCurrency,
-      invoice_amount_reporting: invoiceAmountReporting,
-      payment_received_reporting: 0,
-      difference_original: invoiceAmountOriginal,
-      difference_reporting: invoiceAmountReporting,
-      status: "offen",
-      description: `Offene Forderung aus Rechnung ${invoice.invoice_number ?? ""}`.trim()
-    })
-    .select("id")
-    .single();
-  if (error || !income?.id) throw new Error("Offene Einnahme konnte nicht erstellt werden.");
-
-  await supabase
-    .from("invoices")
-    .update({ income_id: income.id })
-    .eq("id", invoice.id)
-    .eq("user_id", userId)
-    .eq("buchhaltung_id", buchhaltungId);
-  return income.id;
 }
 
 export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult> {
@@ -547,48 +477,21 @@ export async function issueInvoice(formData: FormData): Promise<ActionResult> {
   }
 
   revalidatePath("/rechnungen");
+  revalidatePath("/dashboard");
   return { success: `Rechnung ${data} wurde ausgestellt.`, invoiceId };
 }
 
 export async function cancelInvoice(formData: FormData): Promise<ActionResult> {
-  const { supabase, user, activeBuchhaltung, writeError } = await getInvoiceContext(true);
+  const { supabase, activeBuchhaltung, writeError } = await getInvoiceContext(true);
   if (writeError) return { error: writeError };
-  const id = String(formData.get("id") ?? "");
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("status, income_id")
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung?.id)
-    .maybeSingle();
-  if (!invoice || !["Entwurf", "Ausgestellt", "Versendet"].includes(invoice.status)) {
-    return { error: "Diese Rechnung kann nicht storniert werden." };
-  }
-  const { error } = await supabase
-    .from("invoices")
-    .update({ status: "Storniert" })
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung?.id);
-  if (error) return { error: "Rechnung konnte nicht storniert werden." };
-  if (invoice.income_id) {
-    await supabase
-      .from("bank_fees")
-      .delete()
-      .eq("related_income_id", invoice.income_id)
-      .eq("user_id", user.id)
-      .eq("buchhaltung_id", activeBuchhaltung?.id);
-    await supabase
-      .from("incomes")
-      .delete()
-      .eq("id", invoice.income_id)
-      .eq("user_id", user.id)
-      .eq("buchhaltung_id", activeBuchhaltung?.id);
-  }
-  revalidatePath("/rechnungen");
-  revalidatePath("/dashboard");
-  revalidatePath("/einnahmen");
-  return { success: "Rechnung wurde storniert." };
+  if (!activeBuchhaltung || formData.get("buchhaltung_id") !== activeBuchhaltung.id) return { error: "Die ausgewählte Buchhaltung hat sich geändert. Bitte neu laden." };
+  const { error } = await supabase.rpc("cancel_invoice_v1", {
+    p_invoice_id: String(formData.get("id") ?? ""), p_buchhaltung_id: activeBuchhaltung.id,
+    p_confirm: formData.get("confirm") === "true"
+  });
+  if (error) return { error: error.code === "PGRST202" ? "Die Zahlungs-Migration muss zuerst in Supabase eingespielt werden." : error.message };
+  for (const path of ["/rechnungen", "/dashboard", "/einnahmen"]) revalidatePath(path);
+  return { success: "Rechnung wurde storniert. Historische Buchungen bleiben erhalten." };
 }
 
 export async function duplicateInvoice(formData: FormData): Promise<ActionResult> {
@@ -662,141 +565,53 @@ export async function duplicateInvoice(formData: FormData): Promise<ActionResult
 }
 
 export async function recordInvoicePayment(formData: FormData): Promise<ActionResult> {
-  const { supabase, user, activeBuchhaltung, writeError } = await getInvoiceContext(true);
-  if (writeError) return { error: writeError };
-  if (!activeBuchhaltung) return { error: "Keine Buchhaltung ausgewählt." };
-  const invoiceId = String(formData.get("invoice_id") ?? "");
-
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung.id)
-    .maybeSingle();
-  if (!invoice) return { error: "Rechnung wurde nicht gefunden." };
-
-  const paymentDate = String(formData.get("payment_date") ?? "");
-  const amount = toNumber(formData.get("amount"), 0);
-  const currency = String(formData.get("currency") ?? invoice.currency) as CurrencyCode;
-  const exchangeRate = toNumber(formData.get("exchange_rate"), 1);
-  const exchangeRateSource = "manuell";
-  if (!paymentDate || amount <= 0) return { error: "Bitte Zahlungsdatum und Betrag erfassen." };
-  if (!["Versendet", "Teilweise bezahlt"].includes(invoice.status)) {
-    return { error: "Zahlungen können erst für versendete Rechnungen erfasst werden." };
+  const { supabase, activeBuchhaltung, writeError } = await getInvoiceContext(true);
+  if (writeError) return { rejected: true, error: writeError };
+  if (!activeBuchhaltung || formData.get("buchhaltung_id") !== activeBuchhaltung.id) return { rejected: true, error: "Die ausgewählte Buchhaltung hat sich geändert. Bitte neu laden." };
+  const money = z.coerce.number().finite().nonnegative().max(21474836.47)
+    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 0.00001, "Höchstens zwei Nachkommastellen erlaubt.");
+  const parsed = z.object({
+    invoice_id: z.string().uuid(), request_id: z.string().uuid(),
+    payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
+      const d = new Date(s); return !Number.isNaN(d.valueOf()) && d.toISOString().slice(0, 10) === s;
+    }),
+    amount: money.refine((n) => n > 0), fee: money,
+    currency: z.enum(["CHF", "EUR"]), expected_settled_cents: z.coerce.number().int().nonnegative(),
+    note: z.string().max(2000), exchange_rate_manual: z.enum(["true", "false"]),
+    confirm_overpayment: z.enum(["true", "false"])
+  }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { rejected: true, error: "Bitte Zahlungsdatum, Betrag und Zahlungsangaben prüfen." };
+  const v = parsed.data;
+  let rate = 1;
+  let source = "Identisch";
+  const manual = v.exchange_rate_manual === "true" && v.currency !== activeBuchhaltung.reporting_currency;
+  if (v.currency !== activeBuchhaltung.reporting_currency) {
+    if (manual) {
+      rate = Number(formData.get("exchange_rate")); source = "manuell";
+    } else {
+      // A retry can use the committed snapshot even if the rate provider is unavailable.
+      const { data: existing, error: lookupError } = await supabase.from("invoice_payments").select("exchange_rate, exchange_rate_source")
+        .eq("request_id", v.request_id).eq("buchhaltung_id", activeBuchhaltung.id).eq("invoice_id", v.invoice_id).maybeSingle();
+      if (lookupError) return { rejected: true, error: "Zahlungsstatus konnte nicht geprüft werden. Bitte Migration und Verbindung prüfen." };
+      if (existing) { rate = Number(existing.exchange_rate); source = existing.exchange_rate_source; }
+      else {
+        const historical = await fetchHistoricalChfEurRate(v.payment_date);
+        if (historical.manualRequired) return { rejected: true, error: historical.warning ?? "Bitte historischen Wechselkurs manuell bestätigen." };
+        rate = historical.rate; source = historical.source;
+      }
+    }
+    if (!Number.isFinite(rate) || rate <= 0 || rate >= 1000000) return { rejected: true, error: "Bitte gültigen CHF/EUR-Wechselkurs eingeben." };
   }
-
-  const invoiceAmountOriginal = fromCents(invoice.gross_total_cents);
-  const invoiceAmountReporting = convertToReportingCurrency(
-    invoiceAmountOriginal,
-    invoice.currency,
-    activeBuchhaltung.reporting_currency,
-    exchangeRate
-  );
-  const receivedCents = toCents(amount);
-  const outstandingCents = Math.max(invoice.gross_total_cents - (invoice.paid_total_cents ?? 0), 0);
-  const closesDifference = formData.get("settle_difference") === "true";
-  const requestedFeeCents = Math.max(0, toCents(toNumber(formData.get("fee"), 0)));
-  const feeCents = closesDifference
-    ? Math.max(outstandingCents - receivedCents, requestedFeeCents)
-    : requestedFeeCents;
-  const paidTotalCents = Math.min(
-    invoice.gross_total_cents,
-    (invoice.paid_total_cents ?? 0) + receivedCents + feeCents
-  );
-  const status = paidTotalCents >= invoice.gross_total_cents ? "Bezahlt" : "Teilweise bezahlt";
-  const receivedTotalOriginal = fromCents((invoice.paid_total_cents ?? 0) + receivedCents);
-  const receivedTotalReporting = convertToReportingCurrency(
-    receivedTotalOriginal,
-    invoice.currency,
-    activeBuchhaltung.reporting_currency,
-    exchangeRate
-  );
-
-  const customer = invoice.customer_snapshot as Record<string, string>;
-  const incomePayload = {
-    user_id: user.id,
-    buchhaltung_id: activeBuchhaltung.id,
-    invoice_id: invoice.id,
-    invoice_date: invoice.issue_date,
-    payment_date: paymentDate,
-    customer_project: `${invoice.invoice_number ?? "Rechnung"} · ${customer.company_name ?? "Kunde"}`,
-    category: "Rechnung",
-    invoice_amount_original: invoiceAmountOriginal,
-    payment_received_original: receivedTotalOriginal,
-    currency,
-    tax_mode: "BRUTTO",
-    exchange_rate: exchangeRate,
-    exchange_rate_source: exchangeRateSource,
-    exchange_rate_manual: true,
-    reporting_currency: activeBuchhaltung.reporting_currency,
-    invoice_amount_reporting: invoiceAmountReporting,
-    payment_received_reporting: receivedTotalReporting,
-    difference_original: roundMoney(invoiceAmountOriginal - receivedTotalOriginal),
-    difference_reporting: roundMoney(invoiceAmountReporting - receivedTotalReporting),
-    status: status === "Bezahlt" ? "bezahlt" : "offen",
-    description: `Zahlung zu Rechnung ${invoice.invoice_number ?? invoice.id}`
-  };
-
-  const { data: income, error: incomeError } = invoice.income_id
-    ? await supabase
-        .from("incomes")
-        .update(incomePayload)
-        .eq("id", invoice.income_id)
-        .eq("user_id", user.id)
-        .eq("buchhaltung_id", activeBuchhaltung.id)
-        .select("id")
-        .single()
-    : await supabase.from("incomes").insert(incomePayload).select("id").single();
-  if (incomeError || !income?.id) return { error: "Zahlung konnte nicht als Einnahme gespeichert werden." };
-
-  await supabase.from("invoice_payments").insert({
-    invoice_id: invoice.id,
-    income_id: income.id,
-    user_id: user.id,
-    buchhaltung_id: activeBuchhaltung.id,
-    payment_date: paymentDate,
-    amount_cents: toCents(amount),
-    currency,
-    fee_cents: feeCents,
-    note: String(formData.get("note") ?? "").trim() || null
+  const { error } = await supabase.rpc("record_invoice_payment_v1", {
+    p_invoice_id: v.invoice_id, p_buchhaltung_id: activeBuchhaltung.id, p_request_id: v.request_id,
+    p_payment_date: v.payment_date, p_amount_cents: Math.round(v.amount * 100), p_currency: v.currency,
+    p_expected_settled_cents: v.expected_settled_cents, p_fee_cents: Math.round(v.fee * 100),
+    p_note: v.note, p_confirm_overpayment: v.confirm_overpayment === "true",
+    p_exchange_rate: rate, p_exchange_rate_source: source, p_exchange_rate_manual: manual
   });
-
-  await supabase
-    .from("invoices")
-    .update({ paid_total_cents: paidTotalCents, status, income_id: income.id })
-    .eq("id", invoice.id)
-    .eq("user_id", user.id)
-    .eq("buchhaltung_id", activeBuchhaltung.id);
-
-  if (feeCents > 0) {
-    const feeReporting = convertToReportingCurrency(
-      fromCents(feeCents),
-      currency,
-      activeBuchhaltung.reporting_currency,
-      exchangeRate
-    );
-    await supabase.from("bank_fees").upsert({
-      user_id: user.id,
-      buchhaltung_id: activeBuchhaltung.id,
-      fee_date: paymentDate,
-      original_amount: fromCents(feeCents),
-      currency,
-      fee_type: "Zahlungsanbieter",
-      description: `Zahlungsdifferenz zu Rechnung ${invoice.invoice_number ?? invoice.id}`,
-      exchange_rate: exchangeRate,
-      exchange_rate_source: exchangeRateSource,
-      exchange_rate_manual: true,
-      reporting_currency: activeBuchhaltung.reporting_currency,
-      amount_reporting: feeReporting,
-      related_income_id: income.id
-    }, { onConflict: "related_income_id,fee_type" });
-  }
-
-  revalidatePath("/rechnungen");
-  revalidatePath("/einnahmen");
-  revalidatePath("/dashboard");
-  return { success: "Zahlung wurde erfasst und als Einnahme verknüpft.", invoiceId: invoice.id };
+  if (error) return { rejected: Boolean(error.code), error: error.code === "PGRST202" ? "Die Zahlungs-Migration muss zuerst in Supabase eingespielt werden." : error.message };
+  for (const path of ["/rechnungen", "/einnahmen", "/dashboard", "/bank-gebuehren", "/export-jahresabschluss"]) revalidatePath(path);
+  return { success: "Zahlung und zugehörige Einnahme wurden gemeinsam gespeichert.", invoiceId: v.invoice_id };
 }
 
 export async function saveInvoiceSettings(formData: FormData): Promise<ActionResult> {
@@ -1019,20 +834,10 @@ export async function sendInvoiceEmail(formData: FormData): Promise<ActionResult
   });
 
   if (!response.ok) return { error: "E-Mail konnte nicht versendet werden." };
-  try {
-    await ensureOpenIncomeForInvoice({
-      supabase,
-      userId: user.id,
-      buchhaltungId: activeBuchhaltung.id,
-      reportingCurrency: activeBuchhaltung.reporting_currency,
-      invoice: invoice as Invoice
-    });
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Offene Einnahme konnte nicht erstellt werden." };
-  }
   await supabase
     .from("invoices")
     .update({ status: "Versendet", sent_at: new Date().toISOString() })
+    .in("status", ["Ausgestellt", "Versendet"])
     .eq("id", id)
     .eq("user_id", user.id)
     .eq("buchhaltung_id", activeBuchhaltung.id);

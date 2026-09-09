@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getModuleData } from "@/lib/data";
-import { isIncomePaid } from "@/lib/income-status";
+import { getDashboardData } from "@/lib/data";
+
 
 function toCsv(rows: Record<string, unknown>[]) {
   if (!rows.length) return "";
@@ -26,12 +26,12 @@ export async function GET(
   const year = Number.isInteger(requestedYear) && requestedYear >= 2020 && requestedYear <= 2100
     ? requestedYear
     : new Date().getFullYear();
-  const data = await getModuleData(year);
+  const data = await getDashboardData(year);
   const buchhaltung = data.activeBuchhaltung;
   const receiptCount = data.expenses.filter((expense) => expense.receipts?.length).length;
 
   const map: Record<string, Record<string, unknown>[]> = {
-    einnahmen: data.incomes,
+    einnahmen: data.incomes.filter((income) => String(income.payment_date ?? income.invoice_date).startsWith(`${year}-`)),
     ausgaben: data.expenses,
     bankgebuehren: data.fees,
     fahrten: data.trips,
@@ -48,11 +48,11 @@ export async function GET(
         buchungen_ausgaben: data.expenses.length,
         ausgaben_mit_beleg: receiptCount,
         ausgaben_ohne_beleg: data.expenses.length - receiptCount,
-        einnahmen_gesamt: data.incomes.reduce((sum, row) => sum + (row.payment_received_reporting ?? 0), 0),
-        offene_einnahmen: data.incomes.reduce(
-          (sum, row) => sum + (isIncomePaid(row.status) ? 0 : (row.difference_reporting ?? 0)),
-          0
-        ),
+        einnahmen_gesamt: data.kpis.paymentReceivedTotal,
+        offene_einnahmen: data.kpis.openIncomeTotal,
+        offene_rechnungen_chf: data.kpis.openInvoiceAmounts.CHF,
+        offene_rechnungen_eur: data.kpis.openInvoiceAmounts.EUR,
+        gebuehren_zusaetzlich_zum_nettozahlungseingang: data.kpis.deductibleFeeTotal,
         ausgaben: data.expenses.reduce(
           (sum, row) =>
             sum +

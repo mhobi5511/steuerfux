@@ -153,6 +153,12 @@ export type InvoiceItem = {
 };
 
 export type InvoicePayment = {
+  request_id?: string | null;
+  expected_settled_cents?: number | null;
+  exchange_rate?: number | null;
+  exchange_rate_source?: string | null;
+  reporting_currency?: CurrencyCode | null;
+  amount_reporting?: number | null;
   id: string;
   invoice_id: string;
   income_id: string | null;
@@ -207,6 +213,7 @@ export type Income = BaseRow &
   CurrencySnapshot & {
     buchhaltung_id: string;
     invoice_id: string | null;
+    invoice_payment_id?: string | null;
     invoice_date: string;
     payment_date: string | null;
     customer_project: string;
@@ -261,6 +268,7 @@ export type BankFee = BaseRow &
   CurrencySnapshot & {
     buchhaltung_id: string;
     fee_date: string;
+    invoice_payment_id?: string | null;
     original_amount: number;
     fee_type: FeeType;
     description: string | null;

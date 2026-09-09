@@ -20,7 +20,7 @@ export default async function DashboardPage({
 
   const compactKpis = [
     {
-      label: "Erhaltene Zahlungen",
+      label: "Eingegangene Einnahmen",
       value: data.kpis.paymentReceivedTotal
     },
     {
@@ -40,7 +40,7 @@ export default async function DashboardPage({
       value: data.kpis.taxRelevantProfit
     },
     {
-      label: "Offener Rechnungsbetrag",
+      label: "Offene Forderungen",
       value: data.kpis.openInvoiceAmount
     }
   ];
@@ -49,7 +49,7 @@ export default async function DashboardPage({
     {
       label: "Rechnungssumme",
       value: data.kpis.incomeTotal,
-      note: "Alle erfassten Rechnungen im Geschäftsjahr."
+      note: "Ausgestellte Rechnungen im Geschäftsjahr, in Berichtswährung."
     },
     {
       label: "Umsatz",
@@ -57,7 +57,7 @@ export default async function DashboardPage({
       note: "Tatsächlich erhaltene Zahlungen."
     },
     {
-      label: "Offene Einnahmen",
+      label: "Offene Forderungen inkl. manueller Einträge",
       value: data.kpis.openIncomeTotal,
       note: "Noch nicht bezahlte oder offene Differenzen."
     },
@@ -153,6 +153,11 @@ export default async function DashboardPage({
         />
       </div>
 
+      <Card className="space-y-2">
+        <p className="font-semibold">Offene Forderungen nach Rechnungswährung</p>
+        <p>{formatCurrency(data.kpis.openInvoiceAmounts.CHF, "CHF")} · {formatCurrency(data.kpis.openInvoiceAmounts.EUR, "EUR")}</p>
+        <p className="text-sm text-slate-600">Aktuell offen, einschließlich Vorjahresrechnungen bis zum gewählten Geschäftsjahr. Fremdwährungsforderungen bleiben separat und werden nicht mit einem geschätzten Kurs addiert.</p>
+      </Card>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Offene Rechnungen" value={String(data.kpis.openInvoices)} />
         <KpiCard label="Überfällige Rechnungen" value={String(data.kpis.overdueInvoices)} />

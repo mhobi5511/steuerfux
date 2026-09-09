@@ -38,13 +38,14 @@ export default async function IncomesPage({
   searchParams?: Promise<{ edit?: string; month?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { incomes, settings, activeBuchhaltung } = await getModuleData(undefined, ["incomes"]);
+  const { incomes, settings, activeBuchhaltung, businessYear } = await getModuleData(undefined, ["incomes"]);
   const reportingCurrency = settings?.reporting_currency ?? "EUR";
   const readOnly = activeBuchhaltung?.status === "abgeschlossen";
-  const editing = incomes.find((income) => income.id === resolvedSearchParams?.edit) ?? null;
+  const editing = incomes.find((income) => income.id === resolvedSearchParams?.edit && !income.invoice_id) ?? null;
   const selectedMonth = getSelectedMonth(resolvedSearchParams?.month);
   const filteredIncomes = incomes.filter((income) =>
-    matchesSelectedMonth(income.invoice_date, selectedMonth)
+    String(income.payment_date ?? income.invoice_date).startsWith(`${businessYear}-`) &&
+    matchesSelectedMonth(income.payment_date ?? income.invoice_date, selectedMonth)
   );
 
   return (
@@ -70,17 +71,17 @@ export default async function IncomesPage({
       )}
       <MonthFilter action="/einnahmen" selectedMonth={selectedMonth} editId={resolvedSearchParams?.edit} />
       <SimpleTable
-        title="Gespeicherte Einnahmen"
-        columns={["Rechnungsdatum", "Kunde / Projekt", "Status", "Originalbetrag", "Kurs", "Berichtswährung", "Aktion"]}
+        title="Einnahmen und manuelle Einträge"
+        columns={["Zahlungsdatum / Rechnungsdatum", "Kunde / Projekt", "Status", "Originalbetrag", "Kurs", "Berichtswährung", "Aktion"]}
         emptyText="Noch keine Einnahmen erfasst."
-        rows={filteredIncomes.map((income) => [
-          formatDate(income.invoice_date),
+        rows={filteredIncomes.filter((income) => !income.invoice_id || income.payment_date).map((income) => [
+          formatDate(income.payment_date ?? income.invoice_date),
           income.customer_project,
           <IncomeStatusBadge key={`${income.id}-status`} status={income.status} />,
           `${formatCurrency(income.invoice_amount_original, income.currency)} (${income.tax_mode})`,
           `${income.exchange_rate}`,
           `${formatCurrency(income.invoice_amount_reporting, reportingCurrency)} / Zahlung ${formatCurrency(income.payment_received_reporting, reportingCurrency)}`,
-          readOnly ? "Schreibgeschützt" : <div key={income.id} className="flex flex-wrap gap-2">
+          income.invoice_id ? <Link key={income.id} href="/rechnungen">{income.invoice_payment_id ? "Rechnungszahlung (fest gebucht)" : "Historische Rechnungsbuchung"}</Link> : readOnly ? "Schreibgeschützt" : <div key={income.id} className="flex flex-wrap gap-2">
             <Link href={`/einnahmen?edit=${income.id}&month=${selectedMonth}`}>
               <Button type="button" variant="ghost">
                 Bearbeiten
@@ -90,6 +91,13 @@ export default async function IncomesPage({
           </div>
         ])}
       />
+      <details className="rounded-xl border border-slate-200 p-4">
+        <summary className="cursor-pointer">Historische Forderungseinträge ({filteredIncomes.filter((income) => income.invoice_id && !income.payment_date).length})</summary>
+        <p className="my-3 text-sm">Unveränderter Altbestand ohne Zahlungseingang. Aktuelle offene Beträge und Stornierungen stehen bei den Rechnungen.</p>
+        {filteredIncomes.filter((income) => income.invoice_id && !income.payment_date).map((income) => <p key={income.id} className="py-2">
+          {formatDate(income.invoice_date)} · {income.customer_project} · {formatCurrency(income.invoice_amount_original, income.currency)} · <Link href="/rechnungen">Rechnung ansehen</Link>
+        </p>)}
+      </details>
     </div>
   );
 }
