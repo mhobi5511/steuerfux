@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   grand: { fontFamily: "Helvetica-Bold", fontSize: 12, borderBottomWidth: 0 },
   payment: { flexDirection: "row", gap: 26, marginTop: 26 },
   paymentColumn: { flexGrow: 1, flexBasis: 0 },
-  qr: { width: 112, height: 112, marginTop: 10 },
+  qr: { width: 130.4, height: 130.4, marginTop: 10 },
   qrLabel: { marginTop: 5, fontSize: 8, color: "#64748b" },
   continuationHeader: { position: "absolute", left: 48, right: 48, top: 24, color: "#64748b", fontSize: 8, textAlign: "right" },
   footer: { position: "absolute", left: 48, right: 48, bottom: 24, borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 6, flexDirection: "row", justifyContent: "space-between" },

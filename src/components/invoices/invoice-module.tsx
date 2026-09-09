@@ -159,7 +159,27 @@ export function InvoiceModule({
   }, [currency, items, kleinunternehmer]);
   const hasPaymentBank = Boolean(selectedBankAccount?.account_holder && selectedBankAccount.iban);
   const usesUploadedPaymentQr = Boolean(useUploadedQr && selectedBankAccount?.qr_storage_path);
-  const usesAutomaticPaymentQr = Boolean(paymentQrEnabled && currency === "EUR" && hasPaymentBank);
+  const isSwissBook = activeBuchhaltung?.country === "Schweiz";
+  const hasSwissCreditorAddress = Boolean(
+    (selectedBankAccount?.swiss_qr_street || invoiceSettings?.sender_street)
+      && (selectedBankAccount?.swiss_qr_postal_code || invoiceSettings?.sender_postal_code)
+      && (selectedBankAccount?.swiss_qr_city || invoiceSettings?.sender_city)
+      && (selectedBankAccount?.swiss_qr_country || invoiceSettings?.sender_country)
+  );
+  const swissQrWarning = !isSwissBook
+    ? null
+    : !hasPaymentBank
+      ? "Swiss QR kann nicht erstellt werden, weil die IBAN fehlt."
+      : selectedBankAccount?.qr_iban
+        ? "Für die QR-IBAN fehlt noch eine gültige QR-Referenz. Bis dahin wird bei Bedarf der Fallback-QR verwendet."
+        : !hasSwissCreditorAddress
+          ? "Swiss QR kann nicht erstellt werden, weil die Unternehmensadresse unvollständig ist."
+          : null;
+  const usesAutomaticPaymentQr = Boolean(
+    isSwissBook
+      ? hasPaymentBank && hasSwissCreditorAddress && !selectedBankAccount?.qr_iban
+      : paymentQrEnabled && currency === "EUR" && hasPaymentBank
+  );
 
   const [search, setSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
@@ -454,8 +474,8 @@ export function InvoiceModule({
               <details className="rounded-2xl border border-slate-200 p-4">
                 <summary className="cursor-pointer font-medium text-slate-900">Erweiterte Einstellungen</summary>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2"><Field label="Bankverbindung"><Select name="bank_account_id" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}><option value="">Keine Bankverbindung</option>{bankAccounts.map((bank) => <option key={bank.id} value={bank.id}>{bank.label} · {bank.currency}</option>)}</Select></Field>
-                {currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="payment_qr_enabled" type="checkbox" value="true" checked={paymentQrEnabled} onChange={(event) => setPaymentQrEnabled(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code anzeigen</label> : null}
-                {currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="use_uploaded_qr" type="checkbox" value="true" checked={useUploadedQr} onChange={(event) => setUseUploadedQr(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label> : null}</div>
+                {!isSwissBook && currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="payment_qr_enabled" type="checkbox" value="true" checked={paymentQrEnabled} onChange={(event) => setPaymentQrEnabled(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code anzeigen</label> : null}
+                {!isSwissBook && currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="use_uploaded_qr" type="checkbox" value="true" checked={useUploadedQr} onChange={(event) => setUseUploadedQr(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label> : null}</div>
               </details>
               <Field label="Notiz (optional)">
                 <Textarea name="notes" defaultValue={editing?.notes ?? ""} />
@@ -494,6 +514,7 @@ export function InvoiceModule({
                 ) : (
                   <p className="mt-1 font-medium text-rose-700">Keine Bankverbindung hinterlegt.</p>
                 )}
+                {isSwissBook ? <p className={swissQrWarning ? "mt-3 rounded-xl bg-amber-50 p-3 text-amber-800" : "mt-3 rounded-xl bg-emerald-50 p-3 text-emerald-700"}>{swissQrWarning ?? "✓ Automatischer Swiss QR wird beim Erstellen des PDFs erzeugt."}</p> : null}
               </div>
             </div>
             {editing?.status === "Entwurf" ? (

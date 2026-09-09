@@ -6,6 +6,7 @@ import test, { after } from "node:test";
 import { build } from "esbuild";
 import type { CurrencyCode, Invoice, InvoiceItem } from "@/lib/db-types";
 import { generatePaymentQr } from "@/lib/payment-qr";
+import { generateSwissQr } from "@/lib/swiss-qr";
 
 type RenderInvoicePdf = (props: {
   invoice: Invoice;
@@ -200,6 +201,52 @@ test("renderer embeds the generated EPC QR in a German EUR invoice", async () =>
   assert.ok(Buffer.byteLength(pdf) > 5_000);
   if (process.env.WRITE_INVOICE_PDF_FIXTURES === "1") {
     await writeFile(path.join(fixtureRoot, "invoice-german-qr.pdf"), pdf);
+  }
+});
+
+test("renderer embeds an automatically generated Swiss QR in a CHF invoice", async () => {
+  const qr = await generateSwissQr({
+    creditor: {
+      name: "Beispiel Beratung",
+      iban: "CH9300762011623852957",
+      street: "Hauptstrasse",
+      houseNumber: "1",
+      postalCode: "8753",
+      city: "Mollis",
+      country: "CH"
+    },
+    debtor: {
+      name: "Musterfirma Zürich AG",
+      street: "Lange Beispielstrasse",
+      houseNumber: "42",
+      postalCode: "8001",
+      city: "Zürich",
+      country: "CH"
+    },
+    amountCents: 12_500,
+    currency: "CHF",
+    invoiceNumber: "RG-2026-114"
+  });
+  assert.equal(qr.ok, true);
+  if (!qr.ok) return;
+
+  const pdf = await renderInvoicePdf({
+    invoice: createInvoice(1, "CHF"),
+    customer,
+    sender,
+    bank: {
+      account_holder: "Beispiel Beratung",
+      iban: "CH9300762011623852957",
+      bank_name: "PostFinance"
+    },
+    qrImage: qr.dataUrl,
+    qrLabel: qr.label
+  });
+
+  assert.equal(Buffer.from(pdf).subarray(0, 5).toString("ascii"), "%PDF-");
+  assert.ok(Buffer.byteLength(pdf) > 5_000);
+  if (process.env.WRITE_INVOICE_PDF_FIXTURES === "1") {
+    await writeFile(path.join(fixtureRoot, "invoice-swiss-qr.pdf"), pdf);
   }
 });
 

@@ -36,6 +36,10 @@ export function InvoiceSettingsPanel({
   const [customerForm, setCustomerForm] = useState<Customer | "new" | null>(null);
   const country = activeBuchhaltung?.country ?? "Deutschland";
   const defaultCurrency = activeBuchhaltung?.reporting_currency ?? "EUR";
+  const isSwiss = country === "Schweiz";
+  const [swissQrMode, setSwissQrMode] = useState<"automatic" | "fallback">(
+    invoiceSettings?.default_use_uploaded_qr ? "fallback" : "automatic"
+  );
 
   function submit(action: (formData: FormData) => Promise<Result>, after?: () => void) {
     return (formData: FormData) => startTransition(async () => {
@@ -69,8 +73,18 @@ export function InvoiceSettingsPanel({
           <Field label="Jährlicher Nummernreset"><Select name="yearly_reset" defaultValue={invoiceSettings?.yearly_reset === false ? "false" : "true"}><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
           <Field label="Standard-Zahlungsziel"><Select name="default_payment_term" defaultValue={invoiceSettings?.default_payment_term ?? "1 Monat"}>{["sofort", "7 Tage", "14 Tage", "30 Tage", "1 Monat"].map((term) => <option key={term} value={term}>{term}</option>)}</Select></Field>
           <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_kleinunternehmer" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_kleinunternehmer)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> {getVatExemptionSettingsLabel(country)}</label>
-          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_payment_qr_enabled" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_payment_qr_enabled)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code für EUR-Rechnungen anzeigen</label>
-          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_use_uploaded_qr" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_use_uploaded_qr)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label>
+          {isSwiss ? <fieldset className="grid gap-3 rounded-2xl border border-slate-200 p-4 lg:col-span-2">
+            <legend className="px-1 font-medium text-slate-900">Swiss Payment QR</legend>
+            <input type="hidden" name="default_payment_qr_enabled" value="true" />
+            <input type="hidden" name="default_use_uploaded_qr" value={swissQrMode === "fallback" ? "true" : "false"} />
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input type="radio" name="swiss_qr_mode" value="automatic" checked={swissQrMode === "automatic"} onChange={() => setSwissQrMode("automatic")} className="h-5 w-5 text-brand-600 focus:ring-brand-500" /> Automatisch generieren</label>
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input type="radio" name="swiss_qr_mode" value="fallback" checked={swissQrMode === "fallback"} onChange={() => setSwissQrMode("fallback")} className="h-5 w-5 text-brand-600 focus:ring-brand-500" /> Hochgeladenen Fallback-QR verwenden</label>
+            <p className="text-sm text-emerald-700">✓ Der Swiss QR wird für Schweizer Rechnungen automatisch erzeugt.</p>
+            {swissQrMode === "fallback" ? <p className="text-sm text-slate-600">Die automatische Generierung wird weiterhin zuerst versucht. Das hochgeladene Bild wird nur verwendet, wenn Zahlungsdaten fehlen oder die Erzeugung fehlschlägt.</p> : null}
+          </fieldset> : <>
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_payment_qr_enabled" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_payment_qr_enabled)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code für EUR-Rechnungen anzeigen</label>
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_use_uploaded_qr" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_use_uploaded_qr)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label>
+          </>}
           <div className="lg:col-span-2 flex justify-end"><Button type="submit" disabled={pending}>Rechnungseinstellungen speichern</Button></div>
         </form>
       </Card>
@@ -82,11 +96,20 @@ export function InvoiceSettingsPanel({
           <Field label="Währung"><Select name="currency" defaultValue={defaultCurrency}><option value="EUR">EUR</option><option value="CHF">CHF</option></Select></Field>
           <Field label="Kontoinhaber"><Input name="account_holder" required /></Field>
           <Field label="IBAN"><Input name="iban" required /></Field>
+          {isSwiss ? <Field label="QR-IBAN (optional)" hint="Nur eintragen, wenn Ihre Bank eine QR-IBAN bereitgestellt hat. Ohne gültige QR-Referenz wird der Fallback verwendet."><Input name="qr_iban" autoComplete="off" /></Field> : null}
           <Field label="BIC / SWIFT"><Input name="bic" required /></Field>
           <Field label="Bankname"><Input name="bank_name" required /></Field>
           <Field label="Bankadresse optional"><Input name="bank_address" /></Field>
+          {isSwiss ? <fieldset className="grid gap-4 rounded-2xl border border-slate-200 p-4 lg:col-span-2 lg:grid-cols-[1fr_0.45fr]">
+            <legend className="px-1 font-medium text-slate-900">Strukturierte Adresse für Swiss QR</legend>
+            <Field label="Strasse"><Input name="swiss_qr_street" defaultValue={invoiceSettings?.sender_street ?? ""} required /></Field>
+            <Field label="Hausnummer"><Input name="swiss_qr_house_number" /></Field>
+            <Field label="PLZ"><Input name="swiss_qr_postal_code" defaultValue={invoiceSettings?.sender_postal_code ?? ""} required /></Field>
+            <Field label="Ort"><Input name="swiss_qr_city" defaultValue={invoiceSettings?.sender_city ?? ""} required /></Field>
+            <Field label="Land (ISO-Code)"><Input name="swiss_qr_country" defaultValue="CH" maxLength={2} required /></Field>
+          </fieldset> : null}
           <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="is_default" type="checkbox" value="true" defaultChecked className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Als Standardkonto verwenden</label>
-          <Field label="QR-Code hochladen optional"><Input name="qr_code" type="file" accept="image/*" /></Field>
+          {(!isSwiss || swissQrMode === "fallback") ? <Field label={isSwiss ? "Fallback Swiss Payment QR" : "QR-Code hochladen optional"}><Input name="qr_code" type="file" accept="image/png,image/jpeg,image/webp" /></Field> : null}
           <div className="lg:col-span-2 flex justify-end"><Button type="submit" disabled={pending}>Bankverbindung speichern</Button></div>
         </form>
         <div className="space-y-2 text-sm text-slate-700">

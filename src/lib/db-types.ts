@@ -105,9 +105,15 @@ export type BankAccount = BaseRow & {
   currency: CurrencyCode;
   account_holder: string;
   iban: string;
+  qr_iban: string | null;
   bic: string;
   bank_name: string;
   bank_address: string | null;
+  swiss_qr_street: string | null;
+  swiss_qr_house_number: string | null;
+  swiss_qr_postal_code: string | null;
+  swiss_qr_city: string | null;
+  swiss_qr_country: string | null;
   qr_storage_path: string | null;
   is_default: boolean;
 };

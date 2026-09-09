@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { assertWritableBuchhaltung, getSelectedBuchhaltung } from "@/lib/buchhaltungen";
 import { fetchHistoricalChfEurRate } from "@/lib/currency";
 import { z } from "zod";
+import { isIBANValid, isQRIBAN } from "swissqrbill/utils";
 import {
   calculateDueDate,
   calculateInvoiceItem,
@@ -138,9 +139,15 @@ function buildBankSnapshot(bank: BankAccount | null) {
     currency: bank.currency,
     account_holder: bank.account_holder,
     iban: bank.iban,
+    qr_iban: bank.qr_iban,
     bic: bank.bic,
     bank_name: bank.bank_name,
     bank_address: bank.bank_address,
+    swiss_qr_street: bank.swiss_qr_street,
+    swiss_qr_house_number: bank.swiss_qr_house_number,
+    swiss_qr_postal_code: bank.swiss_qr_postal_code,
+    swiss_qr_city: bank.swiss_qr_city,
+    swiss_qr_country: bank.swiss_qr_country,
     qr_storage_path: bank.qr_storage_path
   };
 }
@@ -195,13 +202,15 @@ function buildQrPaymentSnapshot({
   generatedEnabled,
   useUploadedQr,
   invoiceNumber,
-  currency
+  currency,
+  businessCountry
 }: {
   bank: BankAccount | null;
   generatedEnabled: boolean;
   useUploadedQr: boolean;
   invoiceNumber?: string | null;
   currency: CurrencyCode;
+  businessCountry: BusinessCountry;
 }) {
   const uploadedQrStoragePath = bank?.qr_storage_path ?? null;
   const mode = useUploadedQr && uploadedQrStoragePath
@@ -215,7 +224,8 @@ function buildQrPaymentSnapshot({
     generated_enabled: generatedEnabled,
     use_uploaded_qr: useUploadedQr,
     uploaded_qr_storage_path: uploadedQrStoragePath,
-    payment_purpose: invoiceNumber ? `Rechnung ${invoiceNumber}` : null
+    payment_purpose: invoiceNumber ? `Rechnung ${invoiceNumber}` : null,
+    business_country: businessCountry
   };
 }
 
@@ -347,7 +357,8 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
       generatedEnabled: generatedPaymentQrEnabled,
       useUploadedQr,
       invoiceNumber: null,
-      currency
+      currency,
+      businessCountry: activeBuchhaltung.country
     }),
     vat_exemption_type: taxExemptionType,
     tax_note: taxNote,
@@ -444,7 +455,8 @@ export async function issueInvoice(formData: FormData): Promise<ActionResult> {
             generatedEnabled: invoiceSettings.default_payment_qr_enabled,
             useUploadedQr: invoiceSettings.default_use_uploaded_qr,
             invoiceNumber: null,
-            currency: draft.currency as CurrencyCode
+            currency: draft.currency as CurrencyCode,
+            businessCountry: activeBuchhaltung.country
           })
         })
         .eq("id", invoiceId)
@@ -761,15 +773,34 @@ export async function saveBankAccount(formData: FormData): Promise<ActionResult>
     currency: String(formData.get("currency") ?? activeBuchhaltung.reporting_currency) as CurrencyCode,
     account_holder: String(formData.get("account_holder") ?? "").trim(),
     iban: String(formData.get("iban") ?? "").trim(),
+    qr_iban: String(formData.get("qr_iban") ?? "").trim() || null,
     bic: String(formData.get("bic") ?? "").trim(),
     bank_name: String(formData.get("bank_name") ?? "").trim(),
     bank_address: String(formData.get("bank_address") ?? "").trim() || null,
+    swiss_qr_street: String(formData.get("swiss_qr_street") ?? "").trim() || null,
+    swiss_qr_house_number: String(formData.get("swiss_qr_house_number") ?? "").trim() || null,
+    swiss_qr_postal_code: String(formData.get("swiss_qr_postal_code") ?? "").trim() || null,
+    swiss_qr_city: String(formData.get("swiss_qr_city") ?? "").trim() || null,
+    swiss_qr_country: String(formData.get("swiss_qr_country") ?? "").trim().toUpperCase() || null,
     ...(qrStoragePath ? { qr_storage_path: qrStoragePath } : {}),
     is_default: formData.get("is_default") === "true"
   };
 
   if (!payload.label || !payload.account_holder || !payload.iban || !payload.bic || !payload.bank_name) {
     return { error: "Bitte Bankverbindung vollständig erfassen." };
+  }
+  if (activeBuchhaltung.country === "Schweiz") {
+    const normalizedIban = payload.iban.replace(/\s+/g, "").toUpperCase();
+    const normalizedQrIban = payload.qr_iban?.replace(/\s+/g, "").toUpperCase() ?? "";
+    if (!isIBANValid(normalizedIban) || !/^(CH|LI)/.test(normalizedIban)) {
+      return { error: "Bitte eine gültige Schweizer oder Liechtensteiner IBAN eingeben." };
+    }
+    if (normalizedQrIban && (!isIBANValid(normalizedQrIban) || !isQRIBAN(normalizedQrIban))) {
+      return { error: "Die QR-IBAN ist ungültig oder keine von der Bank bereitgestellte QR-IBAN." };
+    }
+    if (!payload.swiss_qr_street || !payload.swiss_qr_postal_code || !payload.swiss_qr_city || !payload.swiss_qr_country) {
+      return { error: "Bitte die strukturierte Adresse für den Swiss QR vollständig erfassen." };
+    }
   }
 
   if (payload.is_default) {

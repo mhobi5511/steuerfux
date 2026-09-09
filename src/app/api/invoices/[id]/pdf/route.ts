@@ -16,6 +16,11 @@ import {
   resolveInvoiceBankSnapshot
 } from "@/lib/invoice-pdf";
 import { generatePaymentQr } from "@/lib/payment-qr";
+import {
+  isSwissBusinessCountry,
+  prepareSwissQrWithFallback,
+  type SwissQrAddress
+} from "@/lib/swiss-qr";
 
 export const runtime = "nodejs";
 
@@ -107,14 +112,65 @@ export async function GET(
     const uploadedQrPath = typeof qrSnapshot.uploaded_qr_storage_path === "string"
       ? qrSnapshot.uploaded_qr_storage_path
       : value(bank, "qr_storage_path");
+    const isSwissInvoice = isSwissBusinessCountry(
+      value(qrSnapshot, "business_country") || value(sender, "country")
+    );
 
     let paymentQrImage: string | null = null;
     let paymentQrLabel: string | null = null;
     let qrUnavailable = false;
+    let qrWarning: "swiss-qr-fallback" | "swiss-qr-unavailable" | "qr-unavailable" | null = null;
 
     try {
       stage = "qr-preparing";
-      if (qrMode === "uploaded" && uploadedQrPath) {
+      if (isSwissInvoice) {
+        const creditor: SwissQrAddress & { iban: string; qrIban?: string | null } = {
+          name: value(bank, "account_holder") || value(sender, "name"),
+          iban: value(bank, "iban"),
+          qrIban: value(bank, "qr_iban") || null,
+          street: value(bank, "swiss_qr_street") || value(sender, "street"),
+          houseNumber: value(bank, "swiss_qr_house_number") || null,
+          postalCode: value(bank, "swiss_qr_postal_code") || value(sender, "postal_code"),
+          city: value(bank, "swiss_qr_city") || value(sender, "city"),
+          country: value(bank, "swiss_qr_country") || value(sender, "country")
+        };
+        const debtor: SwissQrAddress = {
+          name: value(customer, "company_name") || value(customer, "contact_name"),
+          street: value(customer, "street"),
+          postalCode: value(customer, "postal_code"),
+          city: value(customer, "city"),
+          country: value(customer, "country")
+        };
+        const prepared = await prepareSwissQrWithFallback(
+          {
+            creditor,
+            debtor,
+            amountCents: invoice.gross_total_cents,
+            currency: invoice.currency,
+            invoiceNumber: invoice.invoice_number,
+            qrReference: typeof qrSnapshot.qr_reference === "string" ? qrSnapshot.qr_reference : null
+          },
+          uploadedQrPath
+            ? () => createInvoiceAssetDataUrl(uploadedQrPath, invoice.buchhaltung_id, access)
+            : null
+        );
+        paymentQrImage = prepared.dataUrl;
+        paymentQrLabel = prepared.label;
+        qrUnavailable = prepared.source === "none";
+        qrWarning = prepared.source === "uploaded-fallback"
+          ? "swiss-qr-fallback"
+          : prepared.source === "none"
+            ? "swiss-qr-unavailable"
+            : null;
+        if (prepared.warning) {
+          console.warn("[invoice-pdf] Swiss QR fallback", {
+            invoiceId,
+            source: prepared.source,
+            warningCode: prepared.warningCode,
+            message: prepared.warning
+          });
+        }
+      } else if (qrMode === "uploaded" && uploadedQrPath) {
         paymentQrImage = await createInvoiceAssetDataUrl(
           uploadedQrPath,
           invoice.buchhaltung_id,
@@ -122,6 +178,7 @@ export async function GET(
         );
         paymentQrLabel = "Zahlungs-QR-Code";
         qrUnavailable = !paymentQrImage;
+        if (qrUnavailable) qrWarning = "qr-unavailable";
       } else if (qrMode === "generated") {
         const generatedQr = await generatePaymentQr({
           accountHolder: value(bank, "account_holder"),
@@ -137,9 +194,11 @@ export async function GET(
         paymentQrImage = generatedQr?.dataUrl ?? null;
         paymentQrLabel = generatedQr?.label ?? null;
         qrUnavailable = !paymentQrImage;
+        if (qrUnavailable) qrWarning = "qr-unavailable";
       }
     } catch (error) {
-      qrUnavailable = qrMode !== "none";
+      qrUnavailable = isSwissInvoice || qrMode !== "none";
+      qrWarning = isSwissInvoice ? "swiss-qr-unavailable" : qrUnavailable ? "qr-unavailable" : null;
       console.warn("[invoice-pdf] QR preparation failed", {
         invoiceId,
         qrMode,
@@ -194,6 +253,9 @@ export async function GET(
     );
     const pdfBuffer = renderResult.buffer;
     qrUnavailable ||= renderResult.qrOmitted;
+    if (renderResult.qrOmitted && !qrWarning) {
+      qrWarning = isSwissInvoice ? "swiss-qr-unavailable" : "qr-unavailable";
+    }
 
     stage = "response-building";
     const filename = createInvoicePdfFilename(
@@ -211,7 +273,7 @@ export async function GET(
       "Content-Type": "application/pdf",
       "X-Content-Type-Options": "nosniff"
     };
-    if (qrUnavailable) headers["X-Invoice-Pdf-Warning"] = "qr-unavailable";
+    if (qrWarning) headers["X-Invoice-Pdf-Warning"] = qrWarning;
 
     const response = new NextResponse(new Uint8Array(pdfBuffer), { headers });
     console.info("[invoice-pdf] response ready", {

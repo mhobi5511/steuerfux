@@ -59,10 +59,13 @@ export function InvoicePdfActions({
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 
-      if (response.headers.get("X-Invoice-Pdf-Warning") === "qr-unavailable") {
+      const qrWarning = response.headers.get("X-Invoice-Pdf-Warning");
+      if (qrWarning) {
         setMessage({
           type: "warning",
-          text: "PDF wurde ohne QR-Code erstellt. Die Bankdaten sind weiterhin enthalten."
+          text: qrWarning === "swiss-qr-fallback"
+            ? "Der automatische Swiss QR war nicht verfügbar. Der hinterlegte Fallback-QR wurde verwendet."
+            : "PDF wurde ohne Zahlungs-QR erstellt. Die Bankdaten sind weiterhin enthalten."
         });
       }
     } catch (error) {
