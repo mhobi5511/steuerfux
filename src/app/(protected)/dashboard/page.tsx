@@ -4,6 +4,9 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { getDashboardData } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage({
   searchParams
@@ -45,60 +48,11 @@ export default async function DashboardPage({
     }
   ];
 
-  const advisorKpis = [
-    {
-      label: "Rechnungssumme",
-      value: data.kpis.incomeTotal,
-      note: "Ausgestellte Rechnungen im Geschäftsjahr, in Berichtswährung."
-    },
-    {
-      label: "Umsatz",
-      value: data.kpis.paymentReceivedTotal,
-      note: "Tatsächlich erhaltene Zahlungen."
-    },
-    {
-      label: "Offene Forderungen inkl. manueller Einträge",
-      value: data.kpis.openIncomeTotal,
-      note: "Noch nicht bezahlte oder offene Differenzen."
-    },
-    {
-      label: "Gebühren",
-      value: data.kpis.feeTotal,
-      note: "Bank-, Zahlungsanbieter- und Wechselgebühren."
-    },
-    {
-      label: "Fahrtkosten",
-      value: data.kpis.tripDrivingTotal,
-      note: "Kilometerpauschalen aus Fahrten und Reisen."
-    },
-    {
-      label: "Reise und Verpflegung",
-      value: data.kpis.tripTravelTotal,
-      note: "Reisekosten und Verpflegungspauschalen."
-    },
-    {
-      label: "Ausgaben",
-      value: data.kpis.deductibleExpensesTotal,
-      note: "Steuerlich relevante Ausgaben nach Kundenbeteiligung."
-    },
-    {
-      label: "Abschreibungen",
-      value: data.kpis.depreciationTotal,
-      note: "Jahresanteil der linearen Abschreibungen."
-    },
-    {
-      label: "Steuerlich relevanter Betrag",
-      value: data.kpis.taxRelevantProfit,
-      note: "Umsatz minus steuerlich relevante Kosten."
-    },
-    {
-      label: "Offene Rechnungen",
-      value: data.kpis.openInvoiceAmount,
-      note: `${data.kpis.openInvoices} offen, ${data.kpis.overdueInvoices} überfällig.`
-    }
+  const primaryKpis = [
+    { label: "Ergebnis", value: data.kpis.taxRelevantProfit, note: "Umsatz minus steuerlich relevante Kosten." },
+    { label: "Eingegangene Einnahmen", value: data.kpis.paymentReceivedTotal, note: "Tatsächlich erhaltene Zahlungen." },
+    { label: "Offene Rechnungen", value: data.kpis.openInvoiceAmount, note: `${data.kpis.openInvoices} offen, ${data.kpis.overdueInvoices} überfällig.` }
   ];
-
-  const visibleKpis = showAdvisorDetails ? advisorKpis : compactKpis;
 
   return (
     <div className="space-y-6">
@@ -137,8 +91,8 @@ export default async function DashboardPage({
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {visibleKpis.map((item) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {primaryKpis.map((item) => (
           <KpiCard
             key={item.label}
             label={item.label}
@@ -158,12 +112,14 @@ export default async function DashboardPage({
         <p>{formatCurrency(data.kpis.openInvoiceAmounts.CHF, "CHF")} · {formatCurrency(data.kpis.openInvoiceAmounts.EUR, "EUR")}</p>
         <p className="text-sm text-slate-600">Aktuell offen, einschließlich Vorjahresrechnungen bis zum gewählten Geschäftsjahr. Fremdwährungsforderungen bleiben separat und werden nicht mit einem geschätzten Kurs addiert.</p>
       </Card>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Offene Rechnungen" value={String(data.kpis.openInvoices)} />
-        <KpiCard label="Überfällige Rechnungen" value={String(data.kpis.overdueInvoices)} />
-        <KpiCard label="Diesen Monat gestellt" value={String(data.kpis.invoicesIssuedThisMonth)} />
-        <KpiCard label="Diesen Monat bezahlt" value={String(data.kpis.invoicesPaidThisMonth)} />
-      </div>
+      <details className="rounded-2xl border border-slate-200 bg-white p-4 dark:bg-slate-900">
+        <summary className="cursor-pointer font-medium text-slate-950">Details anzeigen</summary>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {compactKpis.map((item) => <KpiCard key={item.label} label={item.label} value={formatCurrency(item.value, data.reportingCurrency)} />)}
+          <KpiCard label="Diesen Monat gestellt" value={String(data.kpis.invoicesIssuedThisMonth)} />
+          <KpiCard label="Diesen Monat bezahlt" value={String(data.kpis.invoicesPaidThisMonth)} />
+        </div>
+      </details>
 
       {showAdvisorDetails ? (
         <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">

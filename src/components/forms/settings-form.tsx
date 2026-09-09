@@ -140,36 +140,20 @@ export function SettingsForm({
               defaultValue={settings?.default_manual_chf_eur_rate ?? 1}
             />
           </Field>
-          <Field label="Kleinunternehmer-Modus">
-            <Select
-              name="kleinunternehmer_mode"
-              defaultValue={settings?.kleinunternehmer_mode ? "true" : "false"}
-            >
-              <option value="true">Ja</option>
-              <option value="false">Nein</option>
-            </Select>
-          </Field>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="kleinunternehmer_mode" type="checkbox" value="true" defaultChecked={Boolean(settings?.kleinunternehmer_mode)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Kleinunternehmer-Modus</label>
           <Field label="Standard Netto/Brutto">
             <Select name="default_tax_mode" defaultValue={settings?.default_tax_mode ?? "BRUTTO"}>
               <option value="NETTO">NETTO</option>
               <option value="BRUTTO">BRUTTO</option>
             </Select>
           </Field>
-          <Field label="Steuerberater-Ansicht aktiv">
-            <Select
-              name="steuerberater_view"
-              defaultValue={settings?.steuerberater_view ? "true" : "false"}
-            >
-              <option value="false">Nein</option>
-              <option value="true">Ja</option>
-            </Select>
-          </Field>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="steuerberater_view" type="checkbox" value="true" defaultChecked={Boolean(settings?.steuerberater_view)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Steuerberater-Ansicht aktiv</label>
           <div className="lg:col-span-2">
             <FormFeedback error={error} success={success} />
           </div>
           <div className="lg:col-span-2 flex justify-end">
             <Button type="submit" disabled={pending} className="w-full sm:w-auto">
-              {pending ? "Speichern..." : "Einstellungen speichern"}
+              {pending ? "Speichern..." : "Allgemeine Einstellungen speichern"}
             </Button>
           </div>
         </form>

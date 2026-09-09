@@ -7,17 +7,20 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { login, register } from "@/app/actions/auth";
+import { Eye, EyeOff } from "lucide-react";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const action = mode === "login" ? login : register;
 
   return (
     <Card className="space-y-6">
       <div className="space-y-2">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">Steuerfux</p>
         <p className="text-sm uppercase tracking-[0.2em] text-brand-700">Geschützter Zugang</p>
         <h1 className="text-2xl font-semibold text-slate-950">
           {mode === "login" ? "Anmelden" : "Konto erstellen"}
@@ -42,10 +45,10 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         className="space-y-4"
       >
         <Field label="E-Mail">
-          <Input name="email" type="email" required placeholder="name@beispiel.de" />
+          <Input name="email" type="email" autoComplete="email" required placeholder="name@beispiel.de" />
         </Field>
         <Field label="Passwort" hint="Mindestens 6 Zeichen.">
-          <Input name="password" type="password" required minLength={6} />
+          <div className="relative"><Input name="password" type={passwordVisible ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={6} className="pr-12" /><button type="button" onClick={() => setPasswordVisible((visible) => !visible)} className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-slate-500" aria-label={passwordVisible ? "Passwort verbergen" : "Passwort anzeigen"}>{passwordVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div>
         </Field>
 
         {error ? (

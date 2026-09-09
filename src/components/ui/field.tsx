@@ -13,7 +13,7 @@ export function Field({
     <label className="grid min-w-0 gap-2 text-sm text-slate-700">
       <span className="text-[15px] font-medium text-slate-900 md:text-sm">{label}</span>
       {children}
-      {hint ? <span className="hidden text-xs text-slate-500 md:block">{hint}</span> : null}
+      {hint ? <span className="text-xs text-slate-500">{hint}</span> : null}
     </label>
   );
 }

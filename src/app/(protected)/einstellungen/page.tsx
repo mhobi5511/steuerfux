@@ -5,6 +5,9 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { getMileageYearSettings, getSettings } from "@/lib/data";
 import { getInvoiceModuleData } from "@/lib/invoice-data";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Einstellungen" };
 
 export default async function SettingsPage() {
   const [settings, invoiceData, mileageSettings] = await Promise.all([
@@ -23,6 +26,9 @@ export default async function SettingsPage() {
             : null
         }
       />
+      <nav aria-label="Einstellungsbereiche" className="flex flex-wrap gap-2 text-sm">
+        {["Allgemein", "Fahrten", "Rechnungen", "Bankverbindungen", "Empfänger", "Datenschutz & Daten"].map((section) => <span key={section} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-slate-700 dark:bg-slate-900">{section}</span>)}
+      </nav>
       <SettingsForm
         settings={settings}
         activeBuchhaltungId={invoiceData.activeBuchhaltung?.id ?? null}

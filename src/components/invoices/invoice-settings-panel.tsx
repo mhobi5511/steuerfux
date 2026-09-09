@@ -68,10 +68,10 @@ export function InvoiceSettingsPanel({
           <Field label="Nächste Rechnungsnummer"><Input name="next_invoice_number" type="number" defaultValue={invoiceSettings?.next_invoice_number ?? 1} /></Field>
           <Field label="Jährlicher Nummernreset"><Select name="yearly_reset" defaultValue={invoiceSettings?.yearly_reset === false ? "false" : "true"}><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
           <Field label="Standard-Zahlungsziel"><Select name="default_payment_term" defaultValue={invoiceSettings?.default_payment_term ?? "1 Monat"}>{["sofort", "7 Tage", "14 Tage", "30 Tage", "1 Monat"].map((term) => <option key={term} value={term}>{term}</option>)}</Select></Field>
-          <Field label={getVatExemptionSettingsLabel(country)}><Select name="default_kleinunternehmer" defaultValue={invoiceSettings?.default_kleinunternehmer ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-          <Field label="EPC-QR-Code für EUR-Rechnung anzeigen"><Select name="default_payment_qr_enabled" defaultValue={invoiceSettings?.default_payment_qr_enabled ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-          <Field label="Hochgeladenen QR-Code verwenden"><Select name="default_use_uploaded_qr" defaultValue={invoiceSettings?.default_use_uploaded_qr ? "true" : "false"}><option value="false">Nein</option><option value="true">Ja</option></Select></Field>
-          <div className="lg:col-span-2 flex justify-end"><Button type="submit" disabled={pending}>Einstellungen speichern</Button></div>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_kleinunternehmer" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_kleinunternehmer)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> {getVatExemptionSettingsLabel(country)}</label>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_payment_qr_enabled" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_payment_qr_enabled)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code für EUR-Rechnungen anzeigen</label>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_use_uploaded_qr" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_use_uploaded_qr)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label>
+          <div className="lg:col-span-2 flex justify-end"><Button type="submit" disabled={pending}>Rechnungseinstellungen speichern</Button></div>
         </form>
       </Card>
 
@@ -85,7 +85,7 @@ export function InvoiceSettingsPanel({
           <Field label="BIC / SWIFT"><Input name="bic" required /></Field>
           <Field label="Bankname"><Input name="bank_name" required /></Field>
           <Field label="Bankadresse optional"><Input name="bank_address" /></Field>
-          <Field label="Standardkonto"><Select name="is_default" defaultValue="true"><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
+          <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="is_default" type="checkbox" value="true" defaultChecked className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Als Standardkonto verwenden</label>
           <Field label="QR-Code hochladen optional"><Input name="qr_code" type="file" accept="image/*" /></Field>
           <div className="lg:col-span-2 flex justify-end"><Button type="submit" disabled={pending}>Bankverbindung speichern</Button></div>
         </form>

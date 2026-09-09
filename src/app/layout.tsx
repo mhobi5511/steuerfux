@@ -6,7 +6,7 @@ import { ThemeProvider } from "@/components/theme/theme-provider";
 import { themeStorageKey } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: appName,
+  title: { default: appName, template: "%s – Steuerfux" },
   description: "Private, geschützte Buchhaltungs-App für ein Kleingewerbe mit EÜR-Fokus."
 };
 

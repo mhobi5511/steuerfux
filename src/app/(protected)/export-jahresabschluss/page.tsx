@@ -2,6 +2,9 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { getDashboardData } from "@/lib/data";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Export & Jahresabschluss" };
 
 const exportLinks = [
   { key: "einnahmen", label: "CSV Einnahmen" },
@@ -27,8 +30,11 @@ export default async function ExportPage() {
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-950">CSV-Exporte</h2>
-          <div className="grid gap-3">
+          <div><h2 className="text-lg font-semibold text-slate-950">Jahresabschluss</h2><p className="mt-1 text-sm text-slate-600">Buchhaltung: {data.activeBuchhaltung?.name ?? "Keine aktive Buchhaltung"}<br />Jahr: {data.businessYear}</p></div>
+          <p className="text-sm text-slate-600">Alle Exporte sind auf diese Buchhaltung und dieses Geschäftsjahr begrenzt.</p>
+          <details>
+            <summary className="cursor-pointer font-medium text-slate-900">Einzelne Dateien</summary>
+            <div className="mt-3 grid gap-3">
             {exportLinks.map((item) => (
               <Link
                 key={item.key}
@@ -38,7 +44,8 @@ export default async function ExportPage() {
                 {item.label}
               </Link>
             ))}
-          </div>
+            </div>
+          </details>
         </Card>
         <Card className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-950">Jahresreport / PDF</h2>

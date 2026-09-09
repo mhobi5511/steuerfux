@@ -8,11 +8,15 @@ import { createInvoicePdfFilename } from "@/lib/invoice-pdf";
 export function InvoicePdfActions({
   invoiceId,
   invoiceNumber,
-  recipientName
+  recipientName,
+  showDownload = true,
+  previewLabel = "PDF ansehen"
 }: {
   invoiceId: string;
   invoiceNumber: string | null;
   recipientName: string;
+  showDownload?: boolean;
+  previewLabel?: string;
 }) {
   const [downloading, setDownloading] = useState(false);
   const [message, setMessage] = useState<{
@@ -75,16 +79,16 @@ export function InvoicePdfActions({
     <>
       <Button type="button" variant="ghost" onClick={previewPdf}>
         <Eye aria-hidden="true" className="mr-2 h-4 w-4" />
-        PDF ansehen
+        {previewLabel}
       </Button>
-      <Button type="button" variant="ghost" disabled={downloading} onClick={downloadPdf}>
+      {showDownload ? <Button type="button" variant="ghost" disabled={downloading} onClick={downloadPdf}>
         {downloading ? (
           <LoaderCircle aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <Download aria-hidden="true" className="mr-2 h-4 w-4" />
         )}
         {downloading ? "PDF wird erstellt…" : "PDF herunterladen"}
-      </Button>
+      </Button> : null}
       {message ? (
         <span
           aria-live="polite"

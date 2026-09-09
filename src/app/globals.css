@@ -74,6 +74,14 @@ body {
   color: #cbd5e1;
 }
 
+.dark .text-brand-700 {
+  color: #93c5fd;
+}
+
+.dark a.text-brand-700:hover {
+  color: #bfdbfe;
+}
+
 .dark .border-slate-200,
 .dark .border-slate-300,
 .dark .border-line {

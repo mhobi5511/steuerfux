@@ -1,4 +1,4 @@
-export const appName = "Buchhaltung Marc Hobi";
+export const appName = "Steuerfux";
 
 export const homeAddressDefault = "Ottobrunn, München, Deutschland";
 

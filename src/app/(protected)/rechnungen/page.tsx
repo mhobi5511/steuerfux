@@ -1,6 +1,9 @@
 import { InvoiceModule } from "@/components/invoices/invoice-module";
 import { PageHeader } from "@/components/layout/page-header";
 import { getInvoiceModuleData } from "@/lib/invoice-data";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Rechnungen" };
 
 export default async function InvoicesPage({
   searchParams

@@ -19,6 +19,13 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const primaryItems = navItems.filter((item) => ["/dashboard", "/einnahmen", "/ausgaben", "/fahrten-reisen", "/rechnungen"].includes(item.href));
+  const secondaryItems = navItems.filter((item) => !primaryItems.includes(item));
+  const navLink = (item: typeof navItems[number]) => (
+    <Link key={item.href} href={item.href} className={cn("rounded-2xl px-4 py-3 text-[15px] font-medium transition", pathname === item.href ? "bg-slate-950 text-white shadow-sm" : "bg-slate-50 text-slate-700 hover:bg-slate-100")}>
+      {item.label}
+    </Link>
+  );
 
   useEffect(() => {
     setIsOpen(false);
@@ -62,20 +69,8 @@ export function Sidebar({
             </div>
 
             <nav className="grid gap-2">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "rounded-2xl px-4 py-3 text-[15px] font-medium transition",
-                    pathname === item.href
-                      ? "bg-slate-950 text-white shadow-sm"
-                      : "bg-slate-50 text-slate-700 hover:bg-slate-100"
-                  )}
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {primaryItems.map(navLink)}
+              <details className="rounded-2xl bg-slate-50"><summary className="cursor-pointer px-4 py-3 text-[15px] font-medium text-slate-700">Mehr</summary><div className="grid gap-1 p-2 pt-0">{secondaryItems.map(navLink)}</div></details>
             </nav>
 
             <BuchhaltungSelector
@@ -106,20 +101,8 @@ export function Sidebar({
         </div>
 
         <nav className="grid gap-2">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-2xl px-4 py-3 text-sm font-medium transition",
-                pathname === item.href
-                  ? "bg-slate-950 text-white shadow-sm"
-                  : "text-slate-700 hover:bg-slate-100"
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {primaryItems.map(navLink)}
+          <details className="rounded-2xl"><summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Mehr</summary><div className="grid gap-1 p-2 pt-0">{secondaryItems.map(navLink)}</div></details>
         </nav>
 
         <BuchhaltungSelector buchhaltungen={buchhaltungen} activeBuchhaltung={activeBuchhaltung} />

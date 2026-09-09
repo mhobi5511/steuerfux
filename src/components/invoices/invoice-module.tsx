@@ -4,6 +4,7 @@ import Link from "next/link";
 import { InvoicePaymentForm } from "@/components/invoices/invoice-payment-form";
 import { reconcileInvoice, paymentStatusLabel } from "@/lib/invoice-accounting";
 import { useMemo, useState, useTransition } from "react";
+import { MoreHorizontal } from "lucide-react";
 import {
   cancelInvoice,
   duplicateInvoice,
@@ -161,6 +162,7 @@ export function InvoiceModule({
   const usesAutomaticPaymentQr = Boolean(paymentQrEnabled && currency === "EUR" && hasPaymentBank);
 
   const [search, setSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
   const searchedInvoices = invoices.filter((invoice) => `${invoice.invoice_number ?? ""} ${snapshotValue(invoice.customer_snapshot, "company_name")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const cancelledInvoices = searchedInvoices.filter((invoice) => invoice.status === "Storniert");
   const visibleInvoices = searchedInvoices.filter((invoice) => {
@@ -170,6 +172,45 @@ export function InvoiceModule({
     if (filter === "Überfällig") return isOverdue(invoice);
     return invoice.status === filter;
   });
+  const customerLastUsed = new Map<string, string>();
+  invoices.forEach((invoice) => {
+    if (invoice.customer_id) customerLastUsed.set(invoice.customer_id, [customerLastUsed.get(invoice.customer_id) ?? "", invoice.issue_date].sort().at(-1) ?? "");
+  });
+  const matchingCustomers = customers
+    .filter((customer) => `${customer.company_name} ${customer.email} ${customer.city}`.toLocaleLowerCase().includes(customerSearch.toLocaleLowerCase()))
+    .sort((a, b) => {
+      const recent = (customerLastUsed.get(b.id) ?? "").localeCompare(customerLastUsed.get(a.id) ?? "");
+      return recent || a.company_name.localeCompare(b.company_name, "de");
+    });
+
+  function InvoiceActions({ invoice }: { invoice: Invoice }) {
+    const state = reconcileInvoice(invoice);
+    const canPay = !readOnly && !["Entwurf", "Storniert"].includes(invoice.status);
+    const canCancel = !readOnly && ["Entwurf", "Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status);
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {invoice.status === "Entwurf" && !readOnly ? (
+          <Link href={`/rechnungen?edit=${invoice.id}`}><Button type="button" variant="secondary">Bearbeiten</Button></Link>
+        ) : (
+          <InvoicePdfActions invoiceId={invoice.id} invoiceNumber={invoice.invoice_number} recipientName={snapshotValue(invoice.customer_snapshot, "company_name")} showDownload={false} previewLabel="Ansehen" />
+        )}
+        {canPay ? <InvoicePaymentForm invoice={invoice} reportingCurrency={defaultCurrency} /> : null}
+        <details className="relative">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-center rounded-xl px-3 text-slate-700 hover:bg-slate-100 md:min-h-10" aria-label="Weitere Aktionen">
+            <MoreHorizontal aria-hidden="true" className="h-5 w-5" />
+          </summary>
+          <div className="absolute right-0 z-20 mt-2 grid min-w-[16rem] gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-panel dark:bg-slate-900">
+            {invoice.status !== "Entwurf" ? <InvoicePdfActions invoiceId={invoice.id} invoiceNumber={invoice.invoice_number} recipientName={snapshotValue(invoice.customer_snapshot, "company_name")} /> : null}
+            {invoice.status === "Entwurf" && !readOnly ? <form action={submitAction(issueInvoice)}><input name="id" type="hidden" value={invoice.id} /><Button type="submit" className="w-full justify-start" variant="ghost">Ausstellen</Button></form> : null}
+            {!readOnly ? <form action={submitAction(duplicateInvoice)}><input name="id" type="hidden" value={invoice.id} /><Button type="submit" className="w-full justify-start" variant="ghost">Duplizieren</Button></form> : null}
+            {!readOnly && invoice.invoice_number && ["Ausgestellt", "Versendet"].includes(invoice.status) ? <details className="rounded-lg p-1"><summary className="cursor-pointer px-3 py-2 text-sm text-slate-700">{invoice.status === "Versendet" ? "Erneut senden" : "Versenden"}</summary><form action={submitAction(sendInvoiceEmail)} className="mt-2 grid gap-2 border-t border-slate-200 pt-2"><input name="invoice_id" type="hidden" value={invoice.id} /><Input name="to" type="email" defaultValue={snapshotValue(invoice.customer_snapshot, "email")} aria-label="E-Mail-Adresse" /><Input name="subject" defaultValue={`Rechnung ${invoice.invoice_number}`} aria-label="Betreff" /><Textarea name="message" defaultValue={`Guten Tag,\n\nanbei erhalten Sie die Rechnung ${invoice.invoice_number}.\n\nFreundliche Grüße`} aria-label="Nachricht" /><Button type="submit">E-Mail senden</Button></form></details> : null}
+            {(invoice.payments?.length ?? 0) > 0 ? <details className="rounded-lg p-1"><summary className="cursor-pointer px-3 py-2 text-sm text-slate-700">Zahlungen ansehen</summary><div className="mt-2 space-y-1 border-t border-slate-200 pt-2 text-sm text-slate-700">{[...(invoice.payments ?? [])].sort((a, b) => a.payment_date.localeCompare(b.payment_date)).map((payment) => <p key={payment.id}>{formatDate(payment.payment_date)} · {formatCents(payment.amount_cents, payment.currency)}</p>)}<p className="font-medium">Offen: {formatCents(state.remainingCents, invoice.currency)}</p></div></details> : null}
+            {canCancel ? <form action={submitAction(cancelInvoice)} onSubmit={(event) => { if (!window.confirm((invoice.payments?.length || invoice.paid_total_cents > 0) ? "Es bestehen Zahlungen. Die Stornierung ist bis zur buchhalterischen Klärung gesperrt. Es werden keine Einnahmen rückgebucht. Prüfung fortsetzen?" : "Rechnung wirklich stornieren? Die historische Rechnung bleibt erhalten.")) event.preventDefault(); }} className="border-t border-slate-200 pt-1"><input name="buchhaltung_id" type="hidden" value={invoice.buchhaltung_id} /><input name="confirm" type="hidden" value="true" /><input name="id" type="hidden" value={invoice.id} /><Button type="submit" disabled={pending} className="w-full justify-start" variant="ghost">Stornieren</Button></form> : null}
+          </div>
+        </details>
+      </div>
+    );
+  }
 
   function submitAction(action: (formData: FormData) => Promise<{ success?: string; error?: string; customerId?: string }>) {
     return (formData: FormData) =>
@@ -201,7 +242,7 @@ export function InvoiceModule({
               </p>
             </div>
 
-            <form action={submitAction(saveInvoiceDraft)} className="grid gap-4 lg:grid-cols-2">
+            <form action={submitAction(saveInvoiceDraft)} className="grid gap-5">
               {editing ? <input name="id" type="hidden" value={editing.id} /> : null}
               <input
                 name="items_json"
@@ -213,26 +254,18 @@ export function InvoiceModule({
                   }))
                 )}
               />
-              <Field label="Bestehender Empfänger">
-                <Select
-                  name="customer_id"
-                  value={selectedCustomerId}
-                  onChange={(event) => setSelectedCustomerId(event.target.value)}
-                >
-                  <option value="">Neuen Empfänger erfassen</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.company_name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Empfänger speichern">
-                <Select name="save_customer" defaultValue={selectedCustomerId ? "false" : "true"}>
-                  <option value="true">Ja</option>
-                  <option value="false">Nein</option>
-                </Select>
-              </Field>
+              <section className="grid gap-4 rounded-2xl border border-slate-200 p-4 lg:grid-cols-2">
+                <div className="lg:col-span-2"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Schritt 1</p><h3 className="text-base font-semibold text-slate-950">Empfänger</h3></div>
+                <Field label="Empfänger suchen">
+                  <Input value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} type="search" placeholder="Name, E-Mail oder Ort" />
+                </Field>
+                <Field label="Bestehenden Empfänger verwenden">
+                  <Select name="customer_id" value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>
+                    <option value="">Neuen Empfänger erfassen</option>
+                    {matchingCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.company_name} · {customer.email}</option>)}
+                  </Select>
+                </Field>
+                <label className="lg:col-span-2 flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="save_customer" type="checkbox" value="true" defaultChecked={!selectedCustomerId} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Empfänger für spätere Rechnungen speichern</label>
               <Field label="Firma / Name">
                 <Input
                   key={`${customerFieldKey}-company`}
@@ -291,7 +324,10 @@ export function InvoiceModule({
                   defaultValue={snapshotValue(editing?.customer_snapshot, "email") || selectedCustomer?.email || ""}
                 />
               </Field>
+              </section>
 
+              <section className="grid gap-4 rounded-2xl border border-slate-200 p-4 lg:grid-cols-2">
+                <div className="lg:col-span-2"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Schritt 2</p><h3 className="text-base font-semibold text-slate-950">Rechnungsdetails</h3></div>
               <Field label="Ausstellungsdatum">
                 <Input
                   name="issue_date"
@@ -340,48 +376,11 @@ export function InvoiceModule({
                   <option value="CHF">CHF</option>
                 </Select>
               </Field>
-              <Field label={vatExemptionLabel}>
-                <Select
-                  name="kleinunternehmer"
-                  value={kleinunternehmer ? "true" : "false"}
-                  onChange={(event) => setKleinunternehmer(event.target.value === "true")}
-                >
-                  <option value="false">Nein</option>
-                  <option value="true">Ja</option>
-                </Select>
-              </Field>
-              <Field label="Bankverbindung">
-                <Select name="bank_account_id" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}>
-                  <option value="">Keine Bankverbindung</option>
-                  {bankAccounts.map((bank) => (
-                    <option key={bank.id} value={bank.id}>
-                      {bank.label} · {bank.currency}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="EPC-QR-Code für EUR-Rechnung anzeigen">
-                <Select
-                  name="payment_qr_enabled"
-                  value={paymentQrEnabled ? "true" : "false"}
-                  onChange={(event) => setPaymentQrEnabled(event.target.value === "true")}
-                >
-                  <option value="true">Ja</option>
-                  <option value="false">Nein</option>
-                </Select>
-              </Field>
-              <Field label="Hochgeladenen QR-Code verwenden">
-                <Select
-                  name="use_uploaded_qr"
-                  value={useUploadedQr ? "true" : "false"}
-                  onChange={(event) => setUseUploadedQr(event.target.value === "true")}
-                >
-                  <option value="false">Nein</option>
-                  <option value="true">Ja</option>
-                </Select>
-              </Field>
-
-              <div className="lg:col-span-2 space-y-3">
+              <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="kleinunternehmer" type="checkbox" value="true" checked={kleinunternehmer} onChange={(event) => setKleinunternehmer(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> {vatExemptionLabel}</label>
+              </section>
+              <section className="space-y-3 rounded-2xl border border-slate-200 p-4">
+                <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Schritt 3</p><h3 className="text-base font-semibold text-slate-950">Positionen</h3></div>
+              <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="font-semibold text-slate-950">Positionen</h3>
                   <Button type="button" variant="secondary" onClick={() => setItems((value) => [...value, { ...emptyItem }])}>
@@ -391,15 +390,14 @@ export function InvoiceModule({
                 <div className="grid gap-3">
                   {items.map((item, index) => (
                     <div key={index} className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 lg:grid-cols-6">
-                      <Input
+                      <Field label="Leistung" hint="Produkt oder Dienstleistung"><Input
                         placeholder="Produkt oder Dienstleistung"
                         value={item.title}
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, title: event.target.value } : row))
                         }
-                        className="lg:col-span-2"
-                      />
-                      <Input
+                        className="lg:col-span-2" /></Field>
+                      <Field label="Menge"><Input
                         type="number"
                         step="0.0001"
                         min="0"
@@ -407,15 +405,15 @@ export function InvoiceModule({
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row))
                         }
-                      />
-                      <Input
+                      /></Field>
+                      <Field label="Einheit"><Input
                         placeholder="Einheit"
                         value={item.unit}
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, unit: event.target.value } : row))
                         }
-                      />
-                      <Input
+                      /></Field>
+                      <Field label="Preis pro Einheit"><Input
                         type="number"
                         step="0.01"
                         min="0"
@@ -423,8 +421,8 @@ export function InvoiceModule({
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, unitPrice: Number(event.target.value) } : row))
                         }
-                      />
-                      <Input
+                      /></Field>
+                      <Field label="MwSt. %"><Input
                         type="number"
                         step="0.01"
                         min="0"
@@ -433,15 +431,14 @@ export function InvoiceModule({
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, vatRate: Number(event.target.value) } : row))
                         }
-                      />
-                      <Textarea
+                      /></Field>
+                      <div className="lg:col-span-5"><Field label="Beschreibung (optional)"><Textarea
                         placeholder="Beschreibung optional"
                         value={item.description}
                         onChange={(event) =>
                           setItems((value) => value.map((row, rowIndex) => rowIndex === index ? { ...row, description: event.target.value } : row))
                         }
-                        className="lg:col-span-5"
-                      />
+                      /></Field></div>
                       <Button
                         type="button"
                         variant="ghost"
@@ -453,12 +450,18 @@ export function InvoiceModule({
                   ))}
                 </div>
               </div>
-
-              <Field label="Notiz optional">
+              </section>
+              <details className="rounded-2xl border border-slate-200 p-4">
+                <summary className="cursor-pointer font-medium text-slate-900">Erweiterte Einstellungen</summary>
+                <div className="mt-4 grid gap-4 lg:grid-cols-2"><Field label="Bankverbindung"><Select name="bank_account_id" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}><option value="">Keine Bankverbindung</option>{bankAccounts.map((bank) => <option key={bank.id} value={bank.id}>{bank.label} · {bank.currency}</option>)}</Select></Field>
+                {currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="payment_qr_enabled" type="checkbox" value="true" checked={paymentQrEnabled} onChange={(event) => setPaymentQrEnabled(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> EPC-QR-Code anzeigen</label> : null}
+                {currency === "EUR" ? <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="use_uploaded_qr" type="checkbox" value="true" checked={useUploadedQr} onChange={(event) => setUseUploadedQr(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Hochgeladenen QR-Code verwenden</label> : null}</div>
+              </details>
+              <Field label="Notiz (optional)">
                 <Textarea name="notes" defaultValue={editing?.notes ?? ""} />
               </Field>
 
-              <div className="lg:col-span-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <Button type="submit" disabled={pending}>
                   Entwurf speichern
                 </Button>
@@ -467,7 +470,7 @@ export function InvoiceModule({
           </Card>
 
           <Card className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-950">Vorschau</h2>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Schritt 4</p><h2 className="text-lg font-semibold text-slate-950">Vorschau & Ausstellen</h2></div>
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Fällig bis</p>
               <p className="mt-1 text-lg font-semibold text-slate-950">{formatDate(dueDate)}</p>
@@ -528,7 +531,20 @@ export function InvoiceModule({
           ))}
         </div>
         <Field label="Rechnung oder Empfänger suchen"><Input value={search} onChange={(e) => setSearch(e.target.value)} type="search" /></Field>
-        <div className="overflow-x-auto">
+        <div className="grid gap-3 md:hidden">
+          {visibleInvoices.map((invoice) => {
+            const state = reconcileInvoice(invoice);
+            return <article key={invoice.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900">
+              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-950">{invoice.invoice_number ?? "Entwurf"}</p><p className="mt-1 truncate text-sm text-slate-600">{snapshotValue(invoice.customer_snapshot, "company_name")}</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">{paymentStatusLabel(state.status)}</span></div>
+              <p className="mt-4 text-xl font-semibold text-slate-950">{formatCents(invoice.gross_total_cents, invoice.currency)}</p>
+              {(state.receivedCents > 0 || state.remainingCents > 0) ? <div className="mt-2 grid grid-cols-2 gap-2 text-sm"><p className="rounded-lg bg-slate-50 p-2 text-slate-600">Bezahlt<br /><span className="font-medium text-slate-950">{formatCents(state.receivedCents, invoice.currency)}</span></p><p className="rounded-lg bg-slate-50 p-2 text-slate-600">Offen<br /><span className="font-medium text-slate-950">{formatCents(state.remainingCents, invoice.currency)}</span></p></div> : null}
+              <p className={isOverdue(invoice) ? "mt-3 text-sm font-medium text-rose-700" : "mt-3 text-sm text-slate-500"}>Fällig: {formatDate(invoice.due_date)}{isOverdue(invoice) ? " · Überfällig" : ""}</p>
+              <div className="mt-4"><InvoiceActions invoice={invoice} /></div>
+            </article>;
+          })}
+          {visibleInvoices.length === 0 ? <p className="py-8 text-sm text-slate-500">Noch keine Rechnungen vorhanden.</p> : null}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
@@ -561,72 +577,7 @@ export function InvoiceModule({
                   </td>
                   <td className="px-3 py-3">{paymentStatusLabel(reconcileInvoice(invoice).status)}{isOverdue(invoice) ? " · Überfällig" : ""}</td>
                   <td className="px-3 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <InvoicePdfActions
-                        invoiceId={invoice.id}
-                        invoiceNumber={invoice.invoice_number}
-                        recipientName={snapshotValue(invoice.customer_snapshot, "company_name")}
-                      />
-                      {invoice.status === "Entwurf" && !readOnly ? (
-                        <Link href={`/rechnungen?edit=${invoice.id}`}>
-                          <Button type="button" variant="ghost">Bearbeiten</Button>
-                        </Link>
-                      ) : null}
-                      {invoice.status === "Entwurf" && !readOnly ? (
-                        <form action={submitAction(issueInvoice)}>
-                          <input name="id" type="hidden" value={invoice.id} />
-                          <Button type="submit" variant="ghost">Ausstellen</Button>
-                        </form>
-                      ) : null}
-                      {!readOnly ? (
-                        <form action={submitAction(duplicateInvoice)}>
-                          <input name="id" type="hidden" value={invoice.id} />
-                          <Button type="submit" variant="ghost">Duplizieren</Button>
-                        </form>
-                      ) : null}
-                      {!readOnly && !["Entwurf", "Storniert"].includes(invoice.status) ? (
-                        <InvoicePaymentForm invoice={invoice} reportingCurrency={defaultCurrency} />
-                      ) : null}
-                      {!readOnly && ["Entwurf", "Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status) ? (
-                        <form action={submitAction(cancelInvoice)} onSubmit={(event) => {
-                          if (!window.confirm((invoice.payments?.length || invoice.paid_total_cents > 0) ? "Es bestehen Zahlungen. Die Stornierung ist bis zur buchhalterischen Klärung gesperrt. Es werden keine Einnahmen rückgebucht. Prüfung fortsetzen?" : "Rechnung wirklich stornieren? Die historische Rechnung bleibt erhalten.")) event.preventDefault();
-                        }}>
-                          <input name="buchhaltung_id" type="hidden" value={invoice.buchhaltung_id} />
-                          <input name="confirm" type="hidden" value="true" />
-                          <input name="id" type="hidden" value={invoice.id} />
-                          <Button type="submit" disabled={pending} variant="danger">Stornieren</Button>
-                        </form>
-                      ) : null}
-                      {!readOnly && invoice.invoice_number && ["Ausgestellt", "Versendet"].includes(invoice.status) ? (
-                        <details className="min-w-[260px]">
-                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">{invoice.status === "Versendet" ? "Erneut senden" : "Versenden"}</summary>
-                          <form action={submitAction(sendInvoiceEmail)} className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
-                            <input name="invoice_id" type="hidden" value={invoice.id} />
-                            <Input name="to" type="email" defaultValue={snapshotValue(invoice.customer_snapshot, "email")} />
-                            <Input name="subject" defaultValue={`Rechnung ${invoice.invoice_number}`} />
-                            <Textarea name="message" defaultValue={`Guten Tag,\n\nanbei erhalten Sie die Rechnung ${invoice.invoice_number}.\n\nFreundliche Grüße`} />
-                            <Button type="submit">E-Mail senden</Button>
-                          </form>
-                        </details>
-                      ) : null}
-                      {(invoice.payments?.length ?? 0) > 0 ? (
-                        <details className="min-w-[220px]">
-                          <summary className="cursor-pointer rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">Zahlungen ansehen</summary>
-                          <div className="mt-2 space-y-1 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                            {[...(invoice.payments ?? [])].sort((a, b) => a.payment_date.localeCompare(b.payment_date)).map((payment) => <div key={payment.id} className="border-b py-2">
-                              <p>{formatDate(payment.payment_date)} · {formatCents(payment.amount_cents, payment.currency)}</p>
-                              {payment.fee_cents > 0 ? <p>Ausgleich: {formatCents(payment.fee_cents, payment.currency)}</p> : null}
-                              {payment.amount_reporting != null ? <p>{payment.reporting_currency} {Number(payment.amount_reporting).toFixed(2)} · Kurs {payment.exchange_rate}</p> : null}
-                              {payment.note ? <p>{payment.note}</p> : null}
-                              {payment.income_id ? <Link href="/einnahmen">Einnahme: {payment.income_id}</Link> : <p>Altbestand ohne eindeutige Einnahmen-Verknüpfung</p>}
-                            </div>)}
-                            <p>Gesamt bezahlt: {formatCents(reconcileInvoice(invoice).receivedCents, invoice.currency)}</p>
-                            <p>Offen: {formatCents(reconcileInvoice(invoice).remainingCents, invoice.currency)}</p>
-                            <p>Status: {paymentStatusLabel(reconcileInvoice(invoice).status)}</p>
-                          </div>
-                        </details>
-                      ) : null}
-                    </div>
+                    <InvoiceActions invoice={invoice} />
                   </td>
                 </tr>
               ))}
