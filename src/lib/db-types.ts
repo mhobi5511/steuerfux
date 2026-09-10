@@ -118,6 +118,12 @@ export type BankAccount = BaseRow & {
   is_default: boolean;
 };
 
+export type InvoiceLegalNotices = {
+  art10_mwstg: boolean;
+  reverse_charge: boolean;
+  custom_note: string | null;
+};
+
 export type InvoiceSettings = BaseRow & {
   buchhaltung_id: string;
   sender_name: string | null;
@@ -137,6 +143,7 @@ export type InvoiceSettings = BaseRow & {
   default_kleinunternehmer: boolean;
   default_payment_qr_enabled: boolean;
   default_use_uploaded_qr: boolean;
+  default_legal_notices: InvoiceLegalNotices;
 };
 
 export type InvoiceItem = {
@@ -195,6 +202,7 @@ export type Invoice = BaseRow & {
   qr_payment_snapshot: Record<string, unknown>;
   vat_exemption_type: "de-19-ustg" | "ch-art-10-mwstg" | null;
   tax_note: string | null;
+  legal_notices: InvoiceLegalNotices | null;
   notes: string | null;
   net_total_cents: number;
   vat_total_cents: number;

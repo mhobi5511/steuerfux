@@ -14,7 +14,9 @@ import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { getVatExemptionSettingsLabel } from "@/lib/invoice-tax";
+import { normalizeInvoiceLegalNotices } from "@/lib/invoice-notices";
 import type { BankAccount, Buchhaltung, Customer, InvoiceSettings } from "@/lib/db-types";
 
 type Result = { success?: string; error?: string };
@@ -40,6 +42,7 @@ export function InvoiceSettingsPanel({
   const [swissQrMode, setSwissQrMode] = useState<"automatic" | "fallback">(
     invoiceSettings?.default_use_uploaded_qr ? "fallback" : "automatic"
   );
+  const defaultLegalNotices = normalizeInvoiceLegalNotices(invoiceSettings?.default_legal_notices);
 
   function submit(action: (formData: FormData) => Promise<Result>, after?: () => void) {
     return (formData: FormData) => startTransition(async () => {
@@ -73,6 +76,13 @@ export function InvoiceSettingsPanel({
           <Field label="Jährlicher Nummernreset"><Select name="yearly_reset" defaultValue={invoiceSettings?.yearly_reset === false ? "false" : "true"}><option value="true">Ja</option><option value="false">Nein</option></Select></Field>
           <Field label="Standard-Zahlungsziel"><Select name="default_payment_term" defaultValue={invoiceSettings?.default_payment_term ?? "1 Monat"}>{["sofort", "7 Tage", "14 Tage", "30 Tage", "1 Monat"].map((term) => <option key={term} value={term}>{term}</option>)}</Select></Field>
           <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_kleinunternehmer" type="checkbox" value="true" defaultChecked={Boolean(invoiceSettings?.default_kleinunternehmer)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> {getVatExemptionSettingsLabel(country)}</label>
+          <fieldset className="grid gap-3 rounded-2xl border border-slate-200 p-4 lg:col-span-2">
+            <legend className="px-1 font-medium text-slate-900">Standard: Rechtliche Hinweise</legend>
+            <p className="text-sm text-slate-600">Diese Werte werden ausschließlich für neue Rechnungsentwürfe vorausgefüllt.</p>
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_legal_notice_art10_mwstg" type="checkbox" value="true" defaultChecked={defaultLegalNotices.art10_mwstg} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Standard Art. 10 MWSTG</label>
+            <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="default_legal_notice_reverse_charge" type="checkbox" value="true" defaultChecked={defaultLegalNotices.reverse_charge} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Standard Reverse Charge</label>
+            <Field label="Standard freier Hinweis"><Textarea name="default_legal_notice_custom_note" defaultValue={defaultLegalNotices.custom_note ?? ""} maxLength={2000} placeholder="Optionaler Hinweis für neue Rechnungen" /></Field>
+          </fieldset>
           {isSwiss ? <fieldset className="grid gap-3 rounded-2xl border border-slate-200 p-4 lg:col-span-2">
             <legend className="px-1 font-medium text-slate-900">Swiss Payment QR</legend>
             <input type="hidden" name="default_payment_qr_enabled" value="true" />

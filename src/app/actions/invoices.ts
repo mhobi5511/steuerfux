@@ -15,6 +15,11 @@ import {
   getVatExemptionSentence,
   getVatExemptionType
 } from "@/lib/invoice-tax";
+import {
+  EMPTY_INVOICE_LEGAL_NOTICES,
+  normalizeInvoiceLegalNotices,
+  validateCustomInvoiceNotice
+} from "@/lib/invoice-notices";
 import { escapeHtml, toNumber } from "@/lib/utils";
 import type {
   BankAccount,
@@ -81,7 +86,8 @@ async function ensureInvoiceSettings(
       default_payment_term: "1 Monat",
       default_kleinunternehmer: false,
       default_payment_qr_enabled: false,
-      default_use_uploaded_qr: false
+      default_use_uploaded_qr: false,
+      default_legal_notices: EMPTY_INVOICE_LEGAL_NOTICES
     })
     .select("*")
     .single();
@@ -328,6 +334,15 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
   const useUploadedQr = formData.get("use_uploaded_qr") === "true";
   const taxExemptionType = taxExempt ? getVatExemptionType(activeBuchhaltung.country) : null;
   const taxNote = taxExempt ? getVatExemptionSentence(activeBuchhaltung.country) : null;
+  const legalNotices = normalizeInvoiceLegalNotices({
+    art10_mwstg: formData.get("legal_notice_art10_mwstg") === "true",
+    reverse_charge: formData.get("legal_notice_reverse_charge") === "true",
+    custom_note: formData.get("legal_notice_custom_enabled") === "true"
+      ? String(formData.get("legal_notice_custom_note") ?? "")
+      : null
+  });
+  const customNoticeError = validateCustomInvoiceNotice(legalNotices.custom_note ?? "");
+  if (customNoticeError) return { error: customNoticeError };
 
   const calculatedItems = items.map((item) => ({ ...item, ...calculateInvoiceItem(item) }));
   const totals = calculatedItems.reduce(
@@ -362,6 +377,7 @@ export async function saveInvoiceDraft(formData: FormData): Promise<ActionResult
     }),
     vat_exemption_type: taxExemptionType,
     tax_note: taxNote,
+    legal_notices: legalNotices,
     notes: String(formData.get("notes") ?? "").trim() || null,
     net_total_cents: totals.net,
     vat_total_cents: totals.vat,
@@ -544,6 +560,7 @@ export async function duplicateInvoice(formData: FormData): Promise<ActionResult
       },
       vat_exemption_type: source.vat_exemption_type,
       tax_note: source.tax_note,
+      legal_notices: source.legal_notices,
       notes: source.notes,
       net_total_cents: source.net_total_cents,
       vat_total_cents: source.vat_total_cents,
@@ -649,8 +666,16 @@ export async function saveInvoiceSettings(formData: FormData): Promise<ActionRes
     default_payment_term: String(formData.get("default_payment_term") ?? "1 Monat"),
     default_kleinunternehmer: formData.get("default_kleinunternehmer") === "true",
     default_payment_qr_enabled: formData.get("default_payment_qr_enabled") === "true",
-    default_use_uploaded_qr: formData.get("default_use_uploaded_qr") === "true"
+    default_use_uploaded_qr: formData.get("default_use_uploaded_qr") === "true",
+    default_legal_notices: normalizeInvoiceLegalNotices({
+      art10_mwstg: formData.get("default_legal_notice_art10_mwstg") === "true",
+      reverse_charge: formData.get("default_legal_notice_reverse_charge") === "true",
+      custom_note: String(formData.get("default_legal_notice_custom_note") ?? "")
+    })
   };
+
+  const customNoticeError = validateCustomInvoiceNotice(payload.default_legal_notices.custom_note ?? "");
+  if (customNoticeError) return { error: customNoticeError };
 
   const { error } = await supabase
     .from("invoice_settings")

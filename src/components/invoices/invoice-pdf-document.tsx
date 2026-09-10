@@ -14,6 +14,7 @@ import {
 import type { ReactNode } from "react";
 import type { Invoice, InvoiceItem } from "@/lib/db-types";
 import { formatCents } from "@/lib/invoice-utils";
+import { getInvoiceNoticeTexts } from "@/lib/invoice-notices";
 import { formatDate } from "@/lib/utils";
 
 // Next.js App Router compiles ordinary server JSX with its vendored RSC React
@@ -95,7 +96,8 @@ const styles = StyleSheet.create({
   box: { minHeight: 105, borderWidth: 1, borderColor: "#dbe3ef", borderRadius: 10, padding: 12 },
   due: { marginTop: 24, backgroundColor: "#0f172a", color: "#ffffff", borderRadius: 10, padding: 16, flexShrink: 0 },
   dueAmount: { marginTop: 4, fontSize: 18, fontFamily: "Helvetica-Bold" },
-  notice: { marginTop: 16, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#92400e", borderRadius: 8, padding: 10, flexShrink: 0 },
+  notices: { marginTop: 16, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#92400e", borderRadius: 8, padding: 10, flexShrink: 0 },
+  notice: { marginBottom: 4 },
   table: { marginTop: 24, flexShrink: 0 },
   tableHead: { flexDirection: "row", backgroundColor: "#f1f5f9", paddingVertical: 8 },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e2e8f0", paddingVertical: 9 },
@@ -165,6 +167,10 @@ export async function renderInvoicePdf(
   const { invoice, customer, sender, bank, qrImage, qrLabel } = props;
   const items = [...(invoice.items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
   const isTaxExempt = invoice.kleinunternehmer || (invoice.vat_total_cents === 0 && Boolean(invoice.tax_note));
+  const notices = getInvoiceNoticeTexts({
+    legalNotices: invoice.legal_notices,
+    legacyTaxNote: invoice.tax_note
+  });
   const document = (
     <Document title={`Rechnung ${invoice.invoice_number ?? "Entwurf"}`} author={value(sender, "name")}>
       <Page size="A4" style={styles.page}>
@@ -188,7 +194,7 @@ export async function renderInvoicePdf(
           <AddressBox title="AUSGESTELLT VON"><Text>{lines([value(sender, "name"), value(sender, "addition"), value(sender, "street"), `${value(sender, "postal_code")} ${value(sender, "city")}`.trim(), value(sender, "country"), "", value(sender, "email"), value(sender, "phone"), value(sender, "tax_id") ? `Steuernummer / UID: ${value(sender, "tax_id")}` : ""])}</Text></AddressBox>
         </View>
         <View style={styles.due} wrap={false}><Text>Zu zahlender Betrag</Text><Text style={styles.dueAmount}>{formatCents(invoice.gross_total_cents, invoice.currency)} fällig bis zum {formatDate(invoice.due_date)}</Text></View>
-        {invoice.tax_note ? <View style={styles.notice} wrap={false}><Text>{invoice.tax_note}</Text></View> : null}
+        {notices.length ? <View style={styles.notices} wrap={false}>{notices.map((notice, index) => <Text key={notice} style={index < notices.length - 1 ? styles.notice : undefined}>{notice}</Text>)}</View> : null}
         <View style={styles.table}>
           <View style={styles.tableHead} wrap={false}><Text style={styles.description}>Produkt oder Dienstleistung</Text><Text style={styles.quantity}>Menge</Text><Text style={styles.money}>Einzelpreis</Text><Text style={styles.money}>Steuern</Text><Text style={styles.money}>Gesamtbetrag</Text></View>
           {items.map((item) => <ItemRow key={item.id} item={item} invoice={invoice} isTaxExempt={isTaxExempt} />)}

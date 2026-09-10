@@ -106,6 +106,7 @@ function createInvoice(itemCount: number, currency: CurrencyCode): Invoice {
     tax_note: currency === "CHF"
       ? "Nicht mehrwertsteuerpflichtig gemäss Art. 10 MWSTG."
       : null,
+    legal_notices: null,
     notes: null,
     net_total_cents: netTotal,
     vat_total_cents: vatTotal,

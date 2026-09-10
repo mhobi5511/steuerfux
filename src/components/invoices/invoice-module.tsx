@@ -29,6 +29,7 @@ import {
   getVatExemptionLabel,
   getVatExemptionSentence
 } from "@/lib/invoice-tax";
+import { normalizeInvoiceLegalNotices } from "@/lib/invoice-notices";
 import type {
   BankAccount,
   Buchhaltung,
@@ -108,6 +109,9 @@ export function InvoiceModule({
   const [kleinunternehmer, setKleinunternehmer] = useState(
     editing?.kleinunternehmer ?? Boolean(invoiceSettings?.default_kleinunternehmer)
   );
+  const [legalNotices, setLegalNotices] = useState(() => normalizeInvoiceLegalNotices(
+    editing?.legal_notices ?? invoiceSettings?.default_legal_notices
+  ));
   const [paymentQrEnabled, setPaymentQrEnabled] = useState(
     typeof editing?.qr_payment_snapshot?.generated_enabled === "boolean"
       ? Boolean(editing.qr_payment_snapshot.generated_enabled)
@@ -397,6 +401,18 @@ export function InvoiceModule({
                 </Select>
               </Field>
               <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="kleinunternehmer" type="checkbox" value="true" checked={kleinunternehmer} onChange={(event) => setKleinunternehmer(event.target.checked)} className="h-5 w-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> {vatExemptionLabel}</label>
+              <section className="space-y-3 rounded-2xl border border-slate-200 p-4 lg:col-span-2">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-950">Rechtliche Hinweise</h3>
+                  <p className="mt-1 text-sm text-slate-600">Optionale Anzeigehinweise. Sie ändern weder Steuern noch Beträge oder Zahlungslogik.</p>
+                </div>
+                <div className="grid gap-3">
+                  <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="legal_notice_art10_mwstg" type="checkbox" value="true" checked={legalNotices.art10_mwstg} onChange={(event) => setLegalNotices((value) => ({ ...value, art10_mwstg: event.target.checked }))} className="h-5 w-5 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Art. 10 MWSTG</label>
+                  <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="legal_notice_reverse_charge" type="checkbox" value="true" checked={legalNotices.reverse_charge} onChange={(event) => setLegalNotices((value) => ({ ...value, reverse_charge: event.target.checked }))} className="h-5 w-5 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Reverse Charge (§ 13b UStG)</label>
+                  <label className="flex min-h-12 items-center gap-3 rounded-xl bg-slate-50 px-4 text-sm text-slate-700"><input name="legal_notice_custom_enabled" type="checkbox" value="true" checked={Boolean(legalNotices.custom_note)} onChange={(event) => setLegalNotices((value) => ({ ...value, custom_note: event.target.checked ? value.custom_note || "" : null }))} className="h-5 w-5 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500" /> Freier Hinweis</label>
+                  {legalNotices.custom_note !== null ? <Field label="Freier Hinweis"><Textarea name="legal_notice_custom_note" value={legalNotices.custom_note} onChange={(event) => setLegalNotices((value) => ({ ...value, custom_note: event.target.value }))} maxLength={2000} placeholder="Leistung wurde vollständig erbracht." /></Field> : null}
+                </div>
+              </section>
               </section>
               <section className="space-y-3 rounded-2xl border border-slate-200 p-4">
                 <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Schritt 3</p><h3 className="text-base font-semibold text-slate-950">Positionen</h3></div>
