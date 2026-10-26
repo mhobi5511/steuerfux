@@ -54,8 +54,8 @@ export default async function IncomesPage({
         title="Einnahmen"
         description={
           settings?.steuerberater_view
-            ? "Hier trennst du Rechnungsbetrag und echten Zahlungseingang sauber voneinander. Originalbetrag, Originalwährung, Wechselkurs und Berichtswährung bleiben nachvollziehbar."
-            : null
+            ? "Manuelle und nicht rechnungsbezogene Einnahmen sowie historische Buchungen. Originalbetrag, Zahlungseingang, Wechselkurs und Berichtswährung bleiben nachvollziehbar; Rechnungszahlungen werden unter Rechnungen erfasst."
+            : "Manuelle und nicht rechnungsbezogene Einnahmen sowie historische Buchungen. Zahlungen zu Rechnungen werden unter Rechnungen erfasst."
         }
       />
       {readOnly ? <ReadOnlyNotice /> : (

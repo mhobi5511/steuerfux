@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Rechnungen" };
 export default async function InvoicesPage({
   searchParams
 }: {
-  searchParams?: Promise<{ edit?: string; neu?: string; filter?: string }>;
+  searchParams?: Promise<{ edit?: string; neu?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const data = await getInvoiceModuleData();
@@ -17,7 +17,7 @@ export default async function InvoicesPage({
     <div className="space-y-6">
       <PageHeader
         title="Rechnungen"
-        description="Rechnungen erstellen, ausstellen, als PDF ansehen, versenden und Zahlungen als Einnahmen erfassen."
+        description="Offene Forderungen, überfällige und bezahlte Rechnungen verwalten und Zahlungseingänge erfassen."
       />
       <InvoiceModule
         activeBuchhaltung={data.activeBuchhaltung}
@@ -27,7 +27,6 @@ export default async function InvoicesPage({
         bankAccounts={data.bankAccounts}
         editId={resolvedSearchParams?.edit ?? undefined}
         create={resolvedSearchParams?.neu === "1"}
-        filter={resolvedSearchParams?.filter ?? "Alle"}
       />
     </div>
   );

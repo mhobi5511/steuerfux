@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { InvoicePaymentForm } from "@/components/invoices/invoice-payment-form";
 import { reconcileInvoice, paymentStatusLabel } from "@/lib/invoice-accounting";
-import { useMemo, useState, useTransition } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { ChevronDown, MoreHorizontal } from "lucide-react";
 import {
   cancelInvoice,
   duplicateInvoice,
@@ -30,6 +30,10 @@ import {
   getVatExemptionSentence
 } from "@/lib/invoice-tax";
 import { normalizeInvoiceLegalNotices } from "@/lib/invoice-notices";
+import {
+  groupInvoicesForOverview,
+  type InvoiceOverviewGroup
+} from "@/lib/invoice-overview";
 import type {
   BankAccount,
   Buchhaltung,
@@ -38,7 +42,7 @@ import type {
   Invoice,
   InvoiceSettings
 } from "@/lib/db-types";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 type DraftItem = {
   title: string;
@@ -58,16 +62,160 @@ const emptyItem: DraftItem = {
   vatRate: 0
 };
 
-function isOverdue(invoice: Invoice) {
+function snapshotValue(snapshot: Record<string, unknown> | null | undefined, key: string) {
+  return typeof snapshot?.[key] === "string" ? String(snapshot[key]) : "";
+}
+
+function sectionTotal(invoices: Invoice[], group: InvoiceOverviewGroup) {
+  const totals = new Map<string, number>();
+  for (const invoice of invoices) {
+    const state = reconcileInvoice(invoice);
+    const cents = group === "open" || group === "overdue"
+      ? state.remainingCents
+      : group === "paid"
+        ? state.receivedCents
+        : invoice.gross_total_cents;
+    totals.set(invoice.currency, (totals.get(invoice.currency) ?? 0) + cents);
+  }
+  return [...totals.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, cents]) => formatCents(cents, currency as CurrencyCode))
+    .join(" · ");
+}
+
+function InvoiceStatusBadge({ group, status }: { group: InvoiceOverviewGroup; status: Invoice["status"] }) {
+  const label = group === "overdue"
+    ? "Überfällig"
+    : group === "open"
+      ? paymentStatusLabel(status)
+      : group === "paid"
+        ? "Bezahlt"
+        : group === "cancelled"
+          ? "Storniert"
+          : "Entwurf";
+
   return (
-    new Date(invoice.due_date) < new Date(new Date().toISOString().slice(0, 10)) &&
-    reconcileInvoice(invoice).remainingCents > 0 &&
-    !["Bezahlt", "Storniert", "Entwurf"].includes(invoice.status)
+    <span className={cn(
+      "inline-flex shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold",
+      group === "overdue" && "border-rose-200 bg-rose-50 text-rose-700",
+      group === "open" && "border-amber-200 bg-amber-50 text-amber-700",
+      group === "paid" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+      (group === "draft" || group === "cancelled") && "border-slate-200 bg-slate-100 text-slate-700"
+    )}>
+      {label}
+    </span>
   );
 }
 
-function snapshotValue(snapshot: Record<string, unknown> | null | undefined, key: string) {
-  return typeof snapshot?.[key] === "string" ? String(snapshot[key]) : "";
+function InvoiceSection({
+  title,
+  invoices,
+  group,
+  emptyText,
+  totalLabel,
+  defaultOpen,
+  renderActions
+}: {
+  title: string;
+  invoices: Invoice[];
+  group: InvoiceOverviewGroup;
+  emptyText: string;
+  totalLabel: string;
+  defaultOpen: boolean;
+  renderActions: (invoice: Invoice) => ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const total = sectionTotal(invoices, group);
+  const contentId = `invoice-section-${group}`;
+
+  return (
+    <Card className={cn("overflow-hidden p-0 sm:p-0", group === "overdue" && "border-rose-200")}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-4 rounded-[1.75rem] px-4 py-4 text-left transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 sm:px-5"
+      >
+        <span className="min-w-0">
+          <span className="block font-semibold text-slate-950">{title} ({invoices.length})</span>
+          {total ? <span className="mt-1 block text-sm text-slate-600">{totalLabel}: {total}</span> : null}
+        </span>
+        <ChevronDown aria-hidden="true" className={cn("h-5 w-5 shrink-0 text-slate-500 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open ? (
+        <div id={contentId} className="border-t border-slate-200">
+          <div className="grid gap-3 p-4 md:hidden">
+            {invoices.map((invoice) => {
+              const state = reconcileInvoice(invoice);
+              return (
+                <article key={invoice.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-950">{invoice.invoice_number ?? "Entwurf"}</p>
+                      <p className="mt-1 truncate text-sm text-slate-600">{snapshotValue(invoice.customer_snapshot, "company_name")}</p>
+                    </div>
+                    <InvoiceStatusBadge group={group} status={state.status} />
+                  </div>
+                  <dl className="mt-4 grid grid-cols-3 gap-2 text-sm">
+                    <div className="rounded-lg bg-slate-50 p-2"><dt className="text-slate-500">Betrag</dt><dd className="mt-1 font-medium text-slate-950">{formatCents(invoice.gross_total_cents, invoice.currency)}</dd></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><dt className="text-slate-500">Bezahlt</dt><dd className="mt-1 font-medium text-slate-950">{formatCents(state.receivedCents, invoice.currency)}</dd></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><dt className="text-slate-500">Offen</dt><dd className="mt-1 font-medium text-slate-950">{formatCents(state.remainingCents, invoice.currency)}</dd></div>
+                  </dl>
+                  <p className={cn("mt-3 text-sm text-slate-500", group === "overdue" && "font-medium text-rose-700")}>
+                    Fällig: {formatDate(invoice.due_date)}{group === "overdue" ? " · Überfällig" : ""}
+                  </p>
+                  {state.feeCents > 0 ? <p className="mt-1 text-xs text-slate-500">Ausgleich: {formatCents(state.feeCents, invoice.currency)}</p> : null}
+                  {state.overpaidCents > 0 ? <p className="mt-1 text-xs text-amber-700">Überzahlung: {formatCents(state.overpaidCents, invoice.currency)}</p> : null}
+                  {state.legacy ? <p className="mt-1 text-xs text-amber-700">Altbestand: Abstimmung erforderlich</p> : null}
+                  <div className="mt-4">{renderActions(invoice)}</div>
+                </article>
+              );
+            })}
+            {invoices.length === 0 ? <p className="py-4 text-sm text-slate-500">{emptyText}</p> : null}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
+            <table className="min-w-[1080px] text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-3 py-3">Rechnungsnummer</th>
+                  <th className="px-3 py-3">Empfänger</th>
+                  <th className="px-3 py-3">Ausgestellt</th>
+                  <th className="px-3 py-3">Fälligkeit</th>
+                  <th className="px-3 py-3">Betrag</th>
+                  <th className="px-3 py-3">Bezahlt</th>
+                  <th className="px-3 py-3">Offen</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Aktion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((invoice) => {
+                  const state = reconcileInvoice(invoice);
+                  return (
+                    <tr key={invoice.id} className="border-t border-line align-top">
+                      <td className="px-3 py-3 font-medium text-slate-950">{invoice.invoice_number ?? "Entwurf"}</td>
+                      <td className="px-3 py-3">{snapshotValue(invoice.customer_snapshot, "company_name")}</td>
+                      <td className="px-3 py-3">{formatDate(invoice.issue_date)}</td>
+                      <td className={cn("px-3 py-3", group === "overdue" && "font-semibold text-rose-700")}>{formatDate(invoice.due_date)}</td>
+                      <td className="px-3 py-3">{formatCents(invoice.gross_total_cents, invoice.currency)}</td>
+                      <td className="px-3 py-3">{formatCents(state.receivedCents, invoice.currency)}</td>
+                      <td className="px-3 py-3 font-medium">{formatCents(state.remainingCents, invoice.currency)}</td>
+                      <td className="px-3 py-3"><InvoiceStatusBadge group={group} status={state.status} />{state.legacy ? <p className="mt-2 text-xs text-amber-700">Altbestand prüfen</p> : null}</td>
+                      <td className="px-3 py-3">{renderActions(invoice)}</td>
+                    </tr>
+                  );
+                })}
+                {invoices.length === 0 ? <tr><td colSpan={9} className="px-3 py-6 text-slate-500">{emptyText}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  );
 }
 
 export function InvoiceModule({
@@ -77,8 +225,7 @@ export function InvoiceModule({
   invoiceSettings,
   bankAccounts,
   editId,
-  create = false,
-  filter = "Alle"
+  create = false
 }: {
   activeBuchhaltung: Buchhaltung | null;
   customers: Customer[];
@@ -87,7 +234,6 @@ export function InvoiceModule({
   bankAccounts: BankAccount[];
   editId?: string;
   create?: boolean;
-  filter?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ success: string | null; error: string | null }>({
@@ -187,15 +333,13 @@ export function InvoiceModule({
 
   const [search, setSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
-  const searchedInvoices = invoices.filter((invoice) => `${invoice.invoice_number ?? ""} ${snapshotValue(invoice.customer_snapshot, "company_name")}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  const cancelledInvoices = searchedInvoices.filter((invoice) => invoice.status === "Storniert");
-  const visibleInvoices = searchedInvoices.filter((invoice) => {
-    if (invoice.status === "Storniert") return false;
-    if (filter === "Alle") return true;
-    if (filter === "Offen") return ["Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status);
-    if (filter === "Überfällig") return isOverdue(invoice);
-    return invoice.status === filter;
-  });
+  const normalizedSearch = search.trim().toLocaleLowerCase("de");
+  const searchedInvoices = useMemo(() => invoices.filter((invoice) =>
+    `${invoice.invoice_number ?? ""} ${snapshotValue(invoice.customer_snapshot, "company_name")}`
+      .toLocaleLowerCase("de")
+      .includes(normalizedSearch)
+  ), [invoices, normalizedSearch]);
+  const groupedInvoices = useMemo(() => groupInvoicesForOverview(searchedInvoices), [searchedInvoices]);
   const customerLastUsed = new Map<string, string>();
   invoices.forEach((invoice) => {
     if (invoice.customer_id) customerLastUsed.set(invoice.customer_id, [customerLastUsed.get(invoice.customer_id) ?? "", invoice.issue_date].sort().at(-1) ?? "");
@@ -209,7 +353,7 @@ export function InvoiceModule({
 
   function InvoiceActions({ invoice }: { invoice: Invoice }) {
     const state = reconcileInvoice(invoice);
-    const canPay = !readOnly && !["Entwurf", "Storniert"].includes(invoice.status);
+    const canPay = !readOnly && state.remainingCents > 0 && !state.legacy && !["Entwurf", "Storniert"].includes(invoice.status);
     const canCancel = !readOnly && ["Entwurf", "Ausgestellt", "Versendet", "Teilweise bezahlt"].includes(invoice.status);
     return (
       <div className="flex flex-wrap items-center gap-2">
@@ -553,88 +697,22 @@ export function InvoiceModule({
 
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-950">Rechnungsübersicht</h2>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Rechnungsübersicht</h2>
+            <p className="mt-1 text-sm text-slate-600">Offene Forderungen, Fälligkeiten und Zahlungseingänge auf einen Blick.</p>
+          </div>
           {!readOnly ? <Link href="/rechnungen?neu=1"><Button type="button">Neue Rechnung</Button></Link> : null}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {["Alle", "Entwurf", "Offen", "Überfällig", "Bezahlt"].map((item) => (
-            <Link
-              key={item}
-              href={`/rechnungen?filter=${encodeURIComponent(item)}`}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              {item}
-            </Link>
-          ))}
-        </div>
-        <Field label="Rechnung oder Empfänger suchen"><Input value={search} onChange={(e) => setSearch(e.target.value)} type="search" /></Field>
-        <div className="grid gap-3 md:hidden">
-          {visibleInvoices.map((invoice) => {
-            const state = reconcileInvoice(invoice);
-            return <article key={invoice.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900">
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-950">{invoice.invoice_number ?? "Entwurf"}</p><p className="mt-1 truncate text-sm text-slate-600">{snapshotValue(invoice.customer_snapshot, "company_name")}</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">{paymentStatusLabel(state.status)}</span></div>
-              <p className="mt-4 text-xl font-semibold text-slate-950">{formatCents(invoice.gross_total_cents, invoice.currency)}</p>
-              {(state.receivedCents > 0 || state.remainingCents > 0) ? <div className="mt-2 grid grid-cols-2 gap-2 text-sm"><p className="rounded-lg bg-slate-50 p-2 text-slate-600">Bezahlt<br /><span className="font-medium text-slate-950">{formatCents(state.receivedCents, invoice.currency)}</span></p><p className="rounded-lg bg-slate-50 p-2 text-slate-600">Offen<br /><span className="font-medium text-slate-950">{formatCents(state.remainingCents, invoice.currency)}</span></p></div> : null}
-              <p className={isOverdue(invoice) ? "mt-3 text-sm font-medium text-rose-700" : "mt-3 text-sm text-slate-500"}>Fällig: {formatDate(invoice.due_date)}{isOverdue(invoice) ? " · Überfällig" : ""}</p>
-              <div className="mt-4"><InvoiceActions invoice={invoice} /></div>
-            </article>;
-          })}
-          {visibleInvoices.length === 0 ? <p className="py-8 text-sm text-slate-500">Noch keine Rechnungen vorhanden.</p> : null}
-        </div>
-        <div className="hidden overflow-x-auto md:block">
-          <table className="min-w-[980px] text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-3 py-3">Rechnungsnummer</th>
-                <th className="px-3 py-3">Empfänger</th>
-                <th className="px-3 py-3">Ausgestellt</th>
-                <th className="px-3 py-3">Fälligkeit</th>
-                <th className="px-3 py-3">Betrag</th>
-                <th className="px-3 py-3">Status</th>
-                <th className="px-3 py-3">Aktion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleInvoices.map((invoice) => (
-                <tr key={invoice.id} className="border-t border-line">
-                  <td className="px-3 py-3">{invoice.invoice_number ?? "Entwurf"}</td>
-                  <td className="px-3 py-3">{snapshotValue(invoice.customer_snapshot, "company_name")}</td>
-                  <td className="px-3 py-3">{formatDate(invoice.issue_date)}</td>
-                  <td className="px-3 py-3">
-                    <span className={isOverdue(invoice) ? "font-semibold text-rose-700" : ""}>
-                      {formatDate(invoice.due_date)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">{formatCents(invoice.gross_total_cents, invoice.currency)}
-                    <p className="mt-1 text-xs">Bezahlt: {formatCents(reconcileInvoice(invoice).receivedCents, invoice.currency)}</p>
-                    <p className="text-xs">Offen: {formatCents(reconcileInvoice(invoice).remainingCents, invoice.currency)}</p>
-                    {reconcileInvoice(invoice).feeCents > 0 ? <p className="text-xs">Ausgleich: {formatCents(reconcileInvoice(invoice).feeCents, invoice.currency)}</p> : null}
-                    {reconcileInvoice(invoice).overpaidCents > 0 ? <p className="text-xs text-amber-700">Überzahlung: {formatCents(reconcileInvoice(invoice).overpaidCents, invoice.currency)}</p> : null}
-                    {reconcileInvoice(invoice).legacy ? <p className="text-xs text-amber-700">Altbestand: Abstimmung erforderlich</p> : null}
-                  </td>
-                  <td className="px-3 py-3">{paymentStatusLabel(reconcileInvoice(invoice).status)}{isOverdue(invoice) ? " · Überfällig" : ""}</td>
-                  <td className="px-3 py-3">
-                    <InvoiceActions invoice={invoice} />
-                  </td>
-                </tr>
-              ))}
-              {visibleInvoices.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-8 text-slate-500">Noch keine Rechnungen vorhanden.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <Field label="Rechnung oder Empfänger suchen"><Input value={search} onChange={(e) => setSearch(e.target.value)} type="search" placeholder="Rechnungsnummer oder Kundenname" /></Field>
       </Card>
-      <Card>
-        <details open={filter === "Storniert" ? true : undefined}>
-          <summary className="cursor-pointer font-semibold">Stornierte Rechnungen ({cancelledInvoices.length})</summary>
-          <div className="mt-4 space-y-4">{cancelledInvoices.map((invoice) => <div key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 border-t py-3">
-            <p>{invoice.invoice_number ?? "Entwurf"} · {snapshotValue(invoice.customer_snapshot, "company_name")} · {formatDate(invoice.issue_date)} · {formatCents(invoice.gross_total_cents, invoice.currency)} · Storniert</p>
-            <InvoicePdfActions invoiceId={invoice.id} invoiceNumber={invoice.invoice_number} recipientName={snapshotValue(invoice.customer_snapshot, "company_name")} />
-            {(invoice.payments ?? []).map((payment) => <p key={payment.id}>{formatDate(payment.payment_date)} · Zahlung {formatCents(payment.amount_cents, payment.currency)} · {payment.note}</p>)}
-          </div>)}</div>
-        </details>
-      </Card>
+      <div className="grid gap-4">
+        {(!normalizedSearch || groupedInvoices.draft.length > 0) ? <InvoiceSection title="Entwürfe" invoices={groupedInvoices.draft} group="draft" emptyText="Keine Entwürfe." totalLabel="Entwurfswert gesamt" defaultOpen renderActions={(invoice) => <InvoiceActions invoice={invoice} />} /> : null}
+        {(!normalizedSearch || groupedInvoices.open.length > 0) ? <InvoiceSection title="Offene Rechnungen" invoices={groupedInvoices.open} group="open" emptyText="Keine offenen Rechnungen." totalLabel="Offen gesamt" defaultOpen renderActions={(invoice) => <InvoiceActions invoice={invoice} />} /> : null}
+        {(!normalizedSearch || groupedInvoices.overdue.length > 0) ? <InvoiceSection title="Überfällige Rechnungen" invoices={groupedInvoices.overdue} group="overdue" emptyText="Keine überfälligen Rechnungen." totalLabel="Überfällig gesamt" defaultOpen renderActions={(invoice) => <InvoiceActions invoice={invoice} />} /> : null}
+        {(!normalizedSearch || groupedInvoices.paid.length > 0) ? <InvoiceSection title="Bezahlte Rechnungen" invoices={groupedInvoices.paid} group="paid" emptyText="Keine bezahlten Rechnungen." totalLabel="Bezahlt gesamt" defaultOpen={false} renderActions={(invoice) => <InvoiceActions invoice={invoice} />} /> : null}
+        {(!normalizedSearch || groupedInvoices.cancelled.length > 0) ? <InvoiceSection title="Stornierte Rechnungen" invoices={groupedInvoices.cancelled} group="cancelled" emptyText="Keine stornierten Rechnungen." totalLabel="Betrag gesamt" defaultOpen={false} renderActions={(invoice) => <InvoiceActions invoice={invoice} />} /> : null}
+        {normalizedSearch && searchedInvoices.length === 0 ? <Card><p className="text-sm text-slate-600">Keine Rechnungen für „{search.trim()}“ gefunden.</p></Card> : null}
+      </div>
     </div>
   );
 }
