@@ -409,3 +409,73 @@ export type AppSettings = BaseRow & {
   estimated_tax_rate: number;
   steuerberater_view: boolean;
 };
+
+export type WealthFirstSettings = BaseRow & {
+  buchhaltung_id: string;
+  tax_rate_basis_points: number;
+  current_buffer_cents: number;
+  warning_threshold_cents: number;
+  version: number;
+  setup_completed_at: string;
+};
+
+export type WealthFirstPot = BaseRow & {
+  buchhaltung_id: string;
+  name: string;
+  monthly_target_cents: number;
+  active: boolean;
+  sort_order: number;
+};
+
+export type WealthFirstDistributionAllocation = {
+  id: string;
+  distribution_id: string;
+  pot_id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  pot_name_snapshot: string;
+  monthly_target_cents_snapshot: number;
+  already_allocated_cents_snapshot: number;
+  allocation_cents: number;
+  expected_month_total_cents: number;
+  exceptional: boolean;
+  created_at: string;
+};
+
+export type WealthFirstDistribution = {
+  id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  idempotency_key: string;
+  distribution_month: string;
+  confirmed_at: string;
+  bank_balance_cents: number;
+  previous_buffer_cents: number;
+  new_receipts_cents: number;
+  tax_rate_basis_points_snapshot: number;
+  tax_reserve_cents: number;
+  available_funds_cents: number;
+  allocation_total_cents: number;
+  buffer_change_cents: number;
+  resulting_buffer_cents: number;
+  warning_threshold_cents_snapshot: number;
+  settings_version_snapshot: number;
+  created_at: string;
+  allocations: WealthFirstDistributionAllocation[];
+};
+
+export type WealthFirstReconciliation = {
+  id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  idempotency_key: string;
+  reconciliation_type: "withdrawal" | "refund" | "deposit" | "transfer" | "other";
+  previous_buffer_cents: number;
+  actual_balance_cents: number;
+  adjustment_cents: number;
+  resulting_buffer_cents: number;
+  reason: string;
+  confirmed_at: string;
+  settings_version_snapshot: number;
+  created_at: string;
+};

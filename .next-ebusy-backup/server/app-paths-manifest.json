@@ -1,0 +1,22 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/exchange-rate/route": "app/api/exchange-rate/route.js",
+  "/api/export/[type]/route": "app/api/export/[type]/route.js",
+  "/api/maps/distance/route": "app/api/maps/distance/route.js",
+  "/api/report/route": "app/api/report/route.js",
+  "/api/invoices/[id]/pdf/route": "app/api/invoices/[id]/pdf/route.js",
+  "/page": "app/page.js",
+  "/(protected)/ausgaben/page": "app/(protected)/ausgaben/page.js",
+  "/(protected)/einnahmen/page": "app/(protected)/einnahmen/page.js",
+  "/(protected)/bank-gebuehren/page": "app/(protected)/bank-gebuehren/page.js",
+  "/(protected)/abschreibungen/page": "app/(protected)/abschreibungen/page.js",
+  "/(auth)/register/page": "app/(auth)/register/page.js",
+  "/(protected)/zuschuesse/page": "app/(protected)/zuschuesse/page.js",
+  "/(protected)/fahrten-reisen/page": "app/(protected)/fahrten-reisen/page.js",
+  "/(protected)/einstellungen/page": "app/(protected)/einstellungen/page.js",
+  "/(protected)/wealth-first/page": "app/(protected)/wealth-first/page.js",
+  "/(protected)/export-jahresabschluss/page": "app/(protected)/export-jahresabschluss/page.js",
+  "/(protected)/dashboard/page": "app/(protected)/dashboard/page.js",
+  "/(protected)/rechnungen/page": "app/(protected)/rechnungen/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js"
+}

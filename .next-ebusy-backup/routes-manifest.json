@@ -1,0 +1,148 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/export/[type]",
+      "regex": "^/api/export/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPtype": "nxtPtype"
+      },
+      "namedRegex": "^/api/export/(?<nxtPtype>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/invoices/[id]/pdf",
+      "regex": "^/api/invoices/([^/]+?)/pdf(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/invoices/(?<nxtPid>[^/]+?)/pdf(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/abschreibungen",
+      "regex": "^/abschreibungen(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/abschreibungen(?:/)?$"
+    },
+    {
+      "page": "/ausgaben",
+      "regex": "^/ausgaben(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/ausgaben(?:/)?$"
+    },
+    {
+      "page": "/bank-gebuehren",
+      "regex": "^/bank\\-gebuehren(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/bank\\-gebuehren(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/einnahmen",
+      "regex": "^/einnahmen(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/einnahmen(?:/)?$"
+    },
+    {
+      "page": "/einstellungen",
+      "regex": "^/einstellungen(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/einstellungen(?:/)?$"
+    },
+    {
+      "page": "/export-jahresabschluss",
+      "regex": "^/export\\-jahresabschluss(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/export\\-jahresabschluss(?:/)?$"
+    },
+    {
+      "page": "/fahrten-reisen",
+      "regex": "^/fahrten\\-reisen(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/fahrten\\-reisen(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/rechnungen",
+      "regex": "^/rechnungen(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/rechnungen(?:/)?$"
+    },
+    {
+      "page": "/register",
+      "regex": "^/register(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/register(?:/)?$"
+    },
+    {
+      "page": "/wealth-first",
+      "regex": "^/wealth\\-first(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/wealth\\-first(?:/)?$"
+    },
+    {
+      "page": "/zuschuesse",
+      "regex": "^/zuschuesse(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/zuschuesse(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

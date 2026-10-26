@@ -9,6 +9,7 @@ export const navItems = [
   { href: "/ausgaben", label: "Ausgaben" },
   { href: "/bank-gebuehren", label: "Bank- & Wechselgebühren" },
   { href: "/fahrten-reisen", label: "Fahrten & Reisen" },
+  { href: "/wealth-first", label: "Wealth First" },
   { href: "/abschreibungen", label: "Abschreibungen" },
   { href: "/export-jahresabschluss", label: "Export & Jahresabschluss" },
   { href: "/einstellungen", label: "Einstellungen" }

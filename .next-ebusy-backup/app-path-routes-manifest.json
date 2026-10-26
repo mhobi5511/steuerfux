@@ -1,0 +1,22 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/exchange-rate/route": "/api/exchange-rate",
+  "/api/export/[type]/route": "/api/export/[type]",
+  "/api/maps/distance/route": "/api/maps/distance",
+  "/api/report/route": "/api/report",
+  "/api/invoices/[id]/pdf/route": "/api/invoices/[id]/pdf",
+  "/page": "/",
+  "/(protected)/ausgaben/page": "/ausgaben",
+  "/(protected)/einnahmen/page": "/einnahmen",
+  "/(protected)/bank-gebuehren/page": "/bank-gebuehren",
+  "/(protected)/abschreibungen/page": "/abschreibungen",
+  "/(auth)/register/page": "/register",
+  "/(protected)/zuschuesse/page": "/zuschuesse",
+  "/(protected)/fahrten-reisen/page": "/fahrten-reisen",
+  "/(protected)/einstellungen/page": "/einstellungen",
+  "/(protected)/wealth-first/page": "/wealth-first",
+  "/(protected)/export-jahresabschluss/page": "/export-jahresabschluss",
+  "/(protected)/dashboard/page": "/dashboard",
+  "/(protected)/rechnungen/page": "/rechnungen",
+  "/(auth)/login/page": "/login"
+}
