@@ -411,6 +411,7 @@ export type AppSettings = BaseRow & {
 };
 
 export type WealthFirstSettings = BaseRow & {
+  pending_surplus_cents: number | null;
   buchhaltung_id: string;
   tax_rate_basis_points: number;
   current_buffer_cents: number;
@@ -420,6 +421,7 @@ export type WealthFirstSettings = BaseRow & {
 };
 
 export type WealthFirstPot = BaseRow & {
+  destination_type: "service_account" | "private_pot" | null;
   buchhaltung_id: string;
   name: string;
   monthly_target_cents: number;
@@ -428,6 +430,8 @@ export type WealthFirstPot = BaseRow & {
 };
 
 export type WealthFirstDistributionAllocation = {
+  destination_type_snapshot: "service_account" | "private_pot" | null;
+  manual_override_snapshot: boolean | null;
   id: string;
   distribution_id: string;
   pot_id: string;
@@ -443,6 +447,14 @@ export type WealthFirstDistributionAllocation = {
 };
 
 export type WealthFirstDistribution = {
+  buffer_target_cents_snapshot: number | null;
+  previous_pending_surplus_cents_snapshot: number | null;
+  investment_surplus_cents: number | null;
+  surplus_transfer_cents: number | null;
+  pending_surplus_cents: number | null;
+  surplus_transfer_confirmed_snapshot: boolean | null;
+  excess_buffer_release_confirmed_snapshot: boolean | null;
+  distribution_date: string | null;
   id: string;
   user_id: string;
   buchhaltung_id: string;
@@ -477,5 +489,21 @@ export type WealthFirstReconciliation = {
   reason: string;
   confirmed_at: string;
   settings_version_snapshot: number;
+  created_at: string;
+};
+
+export type WealthFirstSurplusSettlement = {
+  id: string;
+  user_id: string;
+  buchhaltung_id: string;
+  idempotency_key: string;
+  settlement_date: string;
+  settlement_type: "transfer" | "reconciliation";
+  amount_cents: number;
+  previous_pending_cents: number;
+  resulting_pending_cents: number;
+  buffer_cents_snapshot: number;
+  settings_version_snapshot: number;
+  reason: string;
   created_at: string;
 };

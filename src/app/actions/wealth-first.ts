@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAccountingContext } from "@/lib/data";
+import { isDistributionDate } from "@/lib/wealth-first";
 
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const uuid = z.string().uuid();
@@ -11,13 +12,14 @@ const settingsInputSchema = z.object({
   buchhaltungId: uuid,
   expectedVersion: z.number().int().positive().nullable(),
   taxRateBasisPoints: z.number().int().min(0).max(10_000),
-  warningThresholdCents: cents,
+  bufferTargetCents: cents,
   initialBufferCents: cents.nullable(),
   pots: z.array(z.object({
     id: uuid,
     name: z.string().trim().min(1).max(80),
     monthlyTargetCents: cents,
     active: z.boolean(),
+    destinationType: z.enum(["service_account", "private_pot"]),
     sortOrder: z.number().int().min(0).max(10_000)
   })).min(1).max(50)
 });
@@ -36,14 +38,28 @@ const confirmationInputSchema = z.object({
   buchhaltungId: uuid,
   idempotencyKey: uuid,
   distributionMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  distributionDate: z.string().refine(isDistributionDate),
   bankBalanceCents: cents,
   expectedBufferCents: cents,
   expectedSettingsVersion: z.number().int().positive(),
+  surplusTransferConfirmed: z.boolean(),
+  excessBufferReleaseConfirmed: z.boolean(),
   allocations: z.array(z.object({
     potId: uuid,
     allocationCents: cents,
-    exceptional: z.boolean()
+    manualOverride: z.boolean()
   })).max(50)
+});
+
+const surplusSettlementSchema = z.object({
+  buchhaltungId: uuid,
+  idempotencyKey: uuid,
+  expectedVersion: z.number().int().positive(),
+  expectedPendingCents: cents,
+  amountCents: cents.positive(),
+  settlementDate: z.string().refine(isDistributionDate),
+  settlementType: z.enum(["transfer", "reconciliation"]),
+  reason: z.string().trim().min(5).max(500)
 });
 
 export type WealthFirstActionResult = {
@@ -83,17 +99,18 @@ export async function saveWealthFirstSettings(
   const input = parsed.data;
   const context = await getWealthFirstActionContext(input.buchhaltungId);
   if (context.error) return { error: context.error };
-  const { data, error } = await context.supabase.rpc("save_wealth_first_settings_v1", {
+  const { data, error } = await context.supabase.rpc("save_wealth_first_settings_v2", {
     p_buchhaltung_id: input.buchhaltungId,
     p_expected_version: input.expectedVersion,
     p_tax_rate_basis_points: input.taxRateBasisPoints,
-    p_warning_threshold_cents: input.warningThresholdCents,
+    p_warning_threshold_cents: input.bufferTargetCents,
     p_initial_buffer_cents: input.initialBufferCents,
     p_pots: input.pots.map((pot) => ({
       id: pot.id,
       name: pot.name,
       monthly_target_cents: pot.monthlyTargetCents,
       active: pot.active,
+      destination_type: pot.destinationType,
       sort_order: pot.sortOrder
     }))
   });
@@ -140,18 +157,23 @@ export async function confirmWealthFirstDistribution(
   const input = parsed.data;
   const context = await getWealthFirstActionContext(input.buchhaltungId);
   if (context.error) return { error: context.error };
-  const { data, error } = await context.supabase.rpc("confirm_wealth_first_distribution_v1", {
+  const { data, error } = await context.supabase.rpc("confirm_wealth_first_distribution_v2", {
     p_buchhaltung_id: input.buchhaltungId,
     p_idempotency_key: input.idempotencyKey,
     p_distribution_month: `${input.distributionMonth}-01`,
+    p_distribution_date: input.distributionDate,
     p_bank_balance_cents: input.bankBalanceCents,
     p_expected_buffer_cents: input.expectedBufferCents,
     p_expected_settings_version: input.expectedSettingsVersion,
-    p_allocations: input.allocations.map((allocation) => ({
-      pot_id: allocation.potId,
-      allocation_cents: allocation.allocationCents,
-      exceptional: allocation.exceptional
-    }))
+    p_allocations: {
+      surplus_transfer_confirmed: input.surplusTransferConfirmed,
+      excess_buffer_release_confirmed: input.excessBufferReleaseConfirmed,
+      allocations: input.allocations.map((allocation) => ({
+        pot_id: allocation.potId,
+        allocation_cents: allocation.allocationCents,
+        manual_override: allocation.manualOverride
+      }))
+    }
   });
   if (error) return { error: rpcError(error) ?? undefined };
   revalidatePath("/wealth-first");
@@ -159,4 +181,29 @@ export async function confirmWealthFirstDistribution(
     success: "Verteilung abgeschlossen. Es wurden keine Banküberweisungen ausgeführt.",
     recordId: String(data)
   };
+}
+
+export async function settleWealthFirstSurplus(
+  rawInput: z.input<typeof surplusSettlementSchema>
+): Promise<WealthFirstActionResult> {
+  const parsed = surplusSettlementSchema.safeParse(rawInput);
+  if (!parsed.success) return { error: "Bitte Betrag, Datum und Begründung der Überschuss-Abstimmung prüfen." };
+  const input = parsed.data;
+  const context = await getWealthFirstActionContext(input.buchhaltungId);
+  if (context.error) return { error: context.error };
+  const { data, error } = await context.supabase.rpc("settle_wealth_first_surplus_v1", {
+    p_buchhaltung_id: input.buchhaltungId,
+    p_idempotency_key: input.idempotencyKey,
+    p_expected_version: input.expectedVersion,
+    p_expected_pending_cents: input.expectedPendingCents,
+    p_amount_cents: input.amountCents,
+    p_settlement_date: input.settlementDate,
+    p_settlement_type: input.settlementType,
+    p_reason: input.reason
+  });
+  if (error) return { error: rpcError(error) ?? undefined };
+  revalidatePath("/wealth-first");
+  return { success: input.settlementType === "transfer"
+    ? "Die von dir bestätigte Überschussüberweisung wurde protokolliert. Die App hat keine Überweisung ausgeführt."
+    : "Der Überschuss-Abgang wurde separat abgestimmt. Es wurden keine Buchungen erstellt.", recordId: String(data) };
 }

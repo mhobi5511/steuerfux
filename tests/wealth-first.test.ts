@@ -20,7 +20,7 @@ test("exact CHF 6'661.16 regression: old buffer is not taxed and all totals reco
     bankBalanceCents: 666_116,
     previousBufferCents: 400_000,
     taxRateBasisPoints: 2_500,
-    warningThresholdCents: 450_000,
+    bufferTargetCents: 450_000,
     pots: mandatoryPots.map(([name, allocationCents], index) => ({
       potId: String(index), name, monthlyTargetCents: allocationCents,
       alreadyAllocatedCents: 0, allocationCents
@@ -33,7 +33,7 @@ test("exact CHF 6'661.16 regression: old buffer is not taxed and all totals reco
     allocations: result.allocationTotalCents,
     bufferChange: result.bufferChangeCents,
     buffer: result.resultingBufferCents,
-    warning: result.bufferWarning,
+    warning: result.bufferBelowTarget,
     reconciles: result.reconciles
   }, {
     receipts: 266_116,
@@ -50,15 +50,17 @@ test("exact CHF 6'661.16 regression: old buffer is not taxed and all totals reco
 test("insufficient new funds can use buffer; insufficient total funds remains blocked", () => {
   const covered = calculateWealthFirstDistribution({
     bankBalanceCents: 110_000, previousBufferCents: 100_000,
-    taxRateBasisPoints: 2_500, warningThresholdCents: 50_000,
+    taxRateBasisPoints: 2_500, bufferTargetCents: 50_000,
     pots: [{ potId: "p", name: "Topf", monthlyTargetCents: 20_000, alreadyAllocatedCents: 0, allocationCents: 20_000 }]
   });
   assert.equal(covered.availableFundsCents, 7_500);
-  assert.equal(covered.resultingBufferCents, 87_500);
+  assert.equal(covered.resultingBufferCents, 50_000);
+  assert.equal(covered.investmentSurplusCents, 37_500);
+  assert.ok(covered.validationErrors.length, "above-target previous buffer requires explicit release");
   assert.equal(covered.shortageCents, 0);
   const short = calculateWealthFirstDistribution({
     bankBalanceCents: 10_000, previousBufferCents: 5_000,
-    taxRateBasisPoints: 2_500, warningThresholdCents: 4_500,
+    taxRateBasisPoints: 2_500, bufferTargetCents: 4_500,
     pots: [{ potId: "p", name: "Topf", monthlyTargetCents: 20_000, alreadyAllocatedCents: 0, allocationCents: 20_000 }]
   });
   assert.equal(short.shortageCents, 11_250);
@@ -68,7 +70,7 @@ test("insufficient new funds can use buffer; insufficient total funds remains bl
 test("negative difference requires reconciliation and cannot fabricate negative income or tax", () => {
   const result = calculateWealthFirstDistribution({
     bankBalanceCents: 399_999, previousBufferCents: 400_000,
-    taxRateBasisPoints: 2_500, warningThresholdCents: 450_000, pots: []
+    taxRateBasisPoints: 2_500, bufferTargetCents: 450_000, pots: []
   });
   assert.equal(result.reconciliationRequired, true);
   assert.equal(result.newReceiptsCents, 0);
@@ -79,7 +81,7 @@ test("negative difference requires reconciliation and cannot fabricate negative 
 test("monthly outstanding amount, explicit excess and cent rounding are deterministic", () => {
   const result = calculateWealthFirstDistribution({
     bankBalanceCents: 100_103, previousBufferCents: 100_000,
-    taxRateBasisPoints: 2_500, warningThresholdCents: 100_000,
+    taxRateBasisPoints: 2_500, bufferTargetCents: 100_000,
     pots: [{ potId: "p", name: "Topf", monthlyTargetCents: 62_000, alreadyAllocatedCents: 60_000, allocationCents: 2_001 }]
   });
   assert.equal(result.taxReserveCents, 26);
