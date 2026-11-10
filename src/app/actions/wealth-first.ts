@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAccountingContext } from "@/lib/data";
 import { isDistributionDate } from "@/lib/wealth-first";
+import { isWealthFirstTransferAccountKey } from "@/lib/wealth-first-transfers";
 
 const cents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const uuid = z.string().uuid();
@@ -13,6 +14,7 @@ const settingsInputSchema = z.object({
   expectedVersion: z.number().int().positive().nullable(),
   taxRateBasisPoints: z.number().int().min(0).max(10_000),
   bufferTargetCents: cents,
+  taxTransferAccountKey: z.string().refine(isWealthFirstTransferAccountKey),
   initialBufferCents: cents.nullable(),
   pots: z.array(z.object({
     id: uuid,
@@ -20,6 +22,7 @@ const settingsInputSchema = z.object({
     monthlyTargetCents: cents,
     active: z.boolean(),
     destinationType: z.enum(["service_account", "private_pot"]),
+    transferAccountKey: z.string().refine(isWealthFirstTransferAccountKey),
     sortOrder: z.number().int().min(0).max(10_000)
   })).min(1).max(50)
 });
@@ -99,11 +102,12 @@ export async function saveWealthFirstSettings(
   const input = parsed.data;
   const context = await getWealthFirstActionContext(input.buchhaltungId);
   if (context.error) return { error: context.error };
-  const { data, error } = await context.supabase.rpc("save_wealth_first_settings_v2", {
+  const { data, error } = await context.supabase.rpc("save_wealth_first_settings_v3", {
     p_buchhaltung_id: input.buchhaltungId,
     p_expected_version: input.expectedVersion,
     p_tax_rate_basis_points: input.taxRateBasisPoints,
     p_warning_threshold_cents: input.bufferTargetCents,
+    p_tax_transfer_account_key: input.taxTransferAccountKey,
     p_initial_buffer_cents: input.initialBufferCents,
     p_pots: input.pots.map((pot) => ({
       id: pot.id,
@@ -111,6 +115,7 @@ export async function saveWealthFirstSettings(
       monthly_target_cents: pot.monthlyTargetCents,
       active: pot.active,
       destination_type: pot.destinationType,
+      transfer_account_key: pot.transferAccountKey,
       sort_order: pot.sortOrder
     }))
   });

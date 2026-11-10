@@ -27,13 +27,13 @@ export async function getWealthFirstData(): Promise<WealthFirstData> {
     await Promise.all([
       supabase
         .from("wealth_first_settings")
-        .select("*,pending_surplus_cents")
+        .select("*,pending_surplus_cents,tax_transfer_account_key")
         .eq("user_id", scope.userId)
         .eq("buchhaltung_id", scope.buchhaltungId)
         .maybeSingle(),
       supabase
         .from("wealth_first_pots")
-        .select("*,destination_type")
+        .select("*,destination_type,transfer_account_key")
         .eq("user_id", scope.userId)
         .eq("buchhaltung_id", scope.buchhaltungId)
         .order("sort_order")

@@ -412,6 +412,7 @@ export type AppSettings = BaseRow & {
 
 export type WealthFirstSettings = BaseRow & {
   pending_surplus_cents: number | null;
+  tax_transfer_account_key: "glkb_tax" | "glkb_service" | "revolut" | "yuh" | null;
   buchhaltung_id: string;
   tax_rate_basis_points: number;
   current_buffer_cents: number;
@@ -421,6 +422,7 @@ export type WealthFirstSettings = BaseRow & {
 };
 
 export type WealthFirstPot = BaseRow & {
+  transfer_account_key: "glkb_tax" | "glkb_service" | "revolut" | "yuh" | null;
   destination_type: "service_account" | "private_pot" | null;
   buchhaltung_id: string;
   name: string;

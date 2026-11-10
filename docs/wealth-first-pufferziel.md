@@ -53,8 +53,9 @@ Erforderliche Reihenfolge, jeweils nur soweit noch nicht ausgeführt:
 1. `supabase/migrations/202610260001_wealth_first.sql`
 2. `supabase/migrations/202611100001_wealth_first_service_dates.sql`
 3. `supabase/migrations/202611100002_wealth_first_buffer_target.sql`
+4. `supabase/migrations/202611100003_wealth_first_transfer_accounts.sql`
 
-**Diese Dateien wurden nicht gegen die Produktionsdatenbank ausgeführt.** Sie müssen manuell geprüft und eingespielt werden. Die aktualisierte App benötigt alle drei Migrationen. Bei bestehenden Einrichtungen bleibt die einmalige Servicekonto-Zuordnung aus der vorherigen Erweiterung erforderlich.
+**Diese Dateien wurden nicht gegen die Produktionsdatenbank ausgeführt.** Sie müssen manuell geprüft und eingespielt werden. Die aktualisierte App benötigt alle vier Migrationen. Bei bestehenden Einrichtungen bleiben die einmalige Servicekonto- und Zielkonto-Zuordnung in den Einstellungen erforderlich.
 
 Die neue Migration ergänzt nullable Snapshot-Spalten, einen aktuellen offenen Überschuss und dessen Ereignistabelle. Sie enthält keine historische Rückbefüllung und keine Datenkorrektur. Weil drei vorhandene CHECK-Gleichungen jeden verbleibenden Centime ausschließlich als Puffer behandeln, werden genau diese drei CHECK-Constraints innerhalb derselben Transaktion unter Tabellensperre durch erweiterte Gleichungen ersetzt. Das ist die technisch erforderliche Anpassung der bestehenden Integritätsprüfungen; es werden keine Tabellen, Spalten, Finanzwerte, Eigentumsregeln oder Eindeutigkeitsschlüssel entfernt. Für historische Zeilen bleiben die neuen Felder NULL, sodass dort mathematisch exakt die ursprünglichen Gleichungen gelten. Zusätzliche CHECKs sichern Zielbegrenzung, Überschuss und Status neuer Snapshots. Die Migration ist wiederholbar.
 

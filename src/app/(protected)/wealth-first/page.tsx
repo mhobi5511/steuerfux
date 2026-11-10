@@ -48,8 +48,8 @@ export default async function WealthFirstPage() {
         <Card className="border-amber-200 bg-amber-50">
           <h2 className="font-semibold text-slate-950">Migration noch nicht eingespielt</h2>
           <p className="mt-2 text-sm leading-6 text-slate-700">
-            Führe die Migrationen <code>202610260001_wealth_first.sql</code>, <code>202611100001_wealth_first_service_dates.sql</code> und
-            anschließend <code>202611100002_wealth_first_buffer_target.sql</code> manuell in Supabase aus,
+            Führe die Migrationen <code>202610260001_wealth_first.sql</code>, <code>202611100001_wealth_first_service_dates.sql</code>,
+            <code>202611100002_wealth_first_buffer_target.sql</code> und anschließend <code>202611100003_wealth_first_transfer_accounts.sql</code> manuell in Supabase aus,
             soweit sie noch fehlen.
             Die App führt keine Produktionsmigration automatisch aus.
           </p>

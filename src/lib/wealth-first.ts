@@ -1,9 +1,9 @@
 export const WEALTH_FIRST_DEFAULT_TARGETS = [
-  { name: "Servicekonto", monthlyTargetCents: 4_000, destinationType: "service_account" },
-  { name: "Kautionsfonds", monthlyTargetCents: 62_000, destinationType: "private_pot" },
-  { name: "Guilt Free", monthlyTargetCents: 45_000, destinationType: "private_pot" },
-  { name: "ETF-Investitionen", monthlyTargetCents: 75_000, destinationType: "private_pot" },
-  { name: "Privater Notgroschen", monthlyTargetCents: 42_500, destinationType: "private_pot" }
+  { name: "Servicekonto", monthlyTargetCents: 4_000, destinationType: "service_account", transferAccountKey: "glkb_service" },
+  { name: "Kautionsfonds", monthlyTargetCents: 62_000, destinationType: "private_pot", transferAccountKey: "yuh" },
+  { name: "Guilt Free", monthlyTargetCents: 45_000, destinationType: "private_pot", transferAccountKey: "revolut" },
+  { name: "ETF-Investitionen", monthlyTargetCents: 75_000, destinationType: "private_pot", transferAccountKey: "yuh" },
+  { name: "Privater Notgroschen", monthlyTargetCents: 42_500, destinationType: "private_pot", transferAccountKey: "yuh" }
 ] as const;
 
 export type WealthFirstPotInput = {

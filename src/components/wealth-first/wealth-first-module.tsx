@@ -34,9 +34,17 @@ import {
   parseChfToCents,
   WEALTH_FIRST_DEFAULT_TARGETS
 } from "@/lib/wealth-first";
+import {
+  DEFAULT_TAX_TRANSFER_ACCOUNT,
+  groupWealthFirstTransfers,
+  isWealthFirstTransferAccountKey,
+  WEALTH_FIRST_TRANSFER_ACCOUNTS,
+  wealthFirstTransferTotal,
+  type WealthFirstTransferAccountKey
+} from "@/lib/wealth-first-transfers";
 
 type View = "overview" | "new" | "history" | "settings";
-type EditablePot = { id: string; name: string; amount: string; active: boolean; destinationType: "service_account" | "private_pot" };
+type EditablePot = { id: string; name: string; amount: string; active: boolean; destinationType: "service_account" | "private_pot"; transferAccountKey: WealthFirstTransferAccountKey };
 
 function monthLabel(month: string) {
   return new Intl.DateTimeFormat("de-CH", { month: "long", year: "numeric" }).format(
@@ -53,6 +61,12 @@ function dateTimeLabel(value: string) {
 
 function signedMoney(cents: number) {
   return `${cents >= 0 ? "+" : "−"}${formatChfCents(Math.abs(cents))}`;
+}
+
+function CopyAmountButton({ cents }: { cents: number }) {
+  return <button type="button" className="rounded px-2 py-1 text-xs text-brand-700 hover:bg-brand-50" aria-label={`${formatChfCents(cents)} kopieren`} onClick={() => {
+    void navigator.clipboard?.writeText((cents / 100).toFixed(2));
+  }}>Kopieren</button>;
 }
 
 function Feedback({ message, error }: { message: string; error: string }) {
@@ -102,6 +116,7 @@ export function WealthFirstModule({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const serviceReady = pots.some((pot) => pot.destination_type === "service_account" && pot.active);
+  const transferAccountsReady = Boolean(settings?.tax_transfer_account_key) && pots.filter((pot) => pot.active).every((pot) => Boolean(pot.transfer_account_key));
 
   const navigate = (next: View) => {
     setMessage("");
@@ -146,9 +161,9 @@ export function WealthFirstModule({
           if (result.success) { setView("overview"); router.refresh(); }
         }} /> : null}
 
-      {settings && !serviceReady ? <Card><p className="text-sm">Bitte das Servicekonto einmalig zuordnen und die Einstellungen speichern. Ein vorhandenes Ziel kann weiterverwendet werden.</p></Card> : null}
+      {settings && (!serviceReady || !transferAccountsReady) ? <Card><p className="text-sm">Bitte das Servicekonto und die Überweisungszielkonten einmalig in den Einstellungen zuordnen und speichern. Ein vorhandenes Ziel kann weiterverwendet werden.</p></Card> : null}
 
-      {!settings || view === "settings" || !serviceReady ? (
+      {!settings || view === "settings" || !serviceReady || !transferAccountsReady ? (
         <SettingsPanel
           buchhaltung={buchhaltung}
           settings={settings}
@@ -166,7 +181,7 @@ export function WealthFirstModule({
         />
       ) : null}
 
-      {settings && serviceReady && view === "overview" ? (
+      {settings && serviceReady && transferAccountsReady && view === "overview" ? (
         <Overview
           settings={settings}
           pots={pots}
@@ -176,7 +191,7 @@ export function WealthFirstModule({
         />
       ) : null}
 
-      {settings && serviceReady && view === "new" ? (
+      {settings && serviceReady && transferAccountsReady && view === "new" ? (
         <DistributionPanel
           buchhaltung={buchhaltung}
           settings={settings}
@@ -224,20 +239,27 @@ function SettingsPanel({
   const [threshold, setThreshold] = useState(
     centsToInput(settings?.warning_threshold_cents ?? 450_000)
   );
+  const [taxTransferAccountKey, setTaxTransferAccountKey] = useState<WealthFirstTransferAccountKey>(
+    settings?.tax_transfer_account_key && isWealthFirstTransferAccountKey(settings.tax_transfer_account_key)
+      ? settings.tax_transfer_account_key : DEFAULT_TAX_TRANSFER_ACCOUNT
+  );
   const [editablePots, setEditablePots] = useState<EditablePot[]>(() => {
-    if (!pots.length) return WEALTH_FIRST_DEFAULT_TARGETS.map((pot) => ({ id: "", name: pot.name, amount: centsToInput(pot.monthlyTargetCents), active: true, destinationType: pot.destinationType }));
+    if (!pots.length) return WEALTH_FIRST_DEFAULT_TARGETS.map((pot) => ({ id: "", name: pot.name, amount: centsToInput(pot.monthlyTargetCents), active: true, destinationType: pot.destinationType, transferAccountKey: pot.transferAccountKey }));
     const existing: EditablePot[] = pots.map((pot) => ({
           id: pot.id,
           name: pot.name,
           amount: centsToInput(pot.monthly_target_cents),
           active: pot.active,
-          destinationType: pot.destination_type ?? "private_pot"
+          destinationType: pot.destination_type ?? "private_pot",
+          transferAccountKey: pot.transfer_account_key && isWealthFirstTransferAccountKey(pot.transfer_account_key)
+            ? pot.transfer_account_key : pot.destination_type === "service_account" ? "glkb_service"
+              : pot.name.trim().toLocaleLowerCase("de-CH") === "guilt free" ? "revolut" : "yuh"
         }));
     // Name matching is only a suggestion in the settings editor, confirmed explicitly on save.
     if (!existing.some((pot) => pot.destinationType === "service_account")) {
       const candidate = existing.find((pot) => pot.name.trim().toLocaleLowerCase("de-CH") === "servicekonto");
       if (candidate) { candidate.destinationType = "service_account"; candidate.active = true; }
-      else existing.unshift({ id: "", name: "Servicekonto", amount: "40.00", active: true, destinationType: "service_account" });
+      else existing.unshift({ id: "", name: "Servicekonto", amount: "40.00", active: true, destinationType: "service_account", transferAccountKey: "glkb_service" });
     }
     return existing.sort((a, b) => Number(b.destinationType === "service_account") - Number(a.destinationType === "service_account"));
   });
@@ -253,6 +275,7 @@ function SettingsPanel({
       monthlyTargetCents: parseChfToCents(pot.amount),
       active: pot.active,
       destinationType: pot.destinationType,
+      transferAccountKey: pot.transferAccountKey,
       sortOrder: index
     }));
     if (
@@ -272,6 +295,7 @@ function SettingsPanel({
         expectedVersion: settings?.version ?? null,
         taxRateBasisPoints: Math.round(normalizedRate * 100),
         bufferTargetCents: thresholdCents,
+        taxTransferAccountKey,
         initialBufferCents: isSetup ? initialBufferCents : null,
         pots: normalizedPots.map((pot) => ({ ...pot, monthlyTargetCents: pot.monthlyTargetCents! }))
       });
@@ -311,6 +335,11 @@ function SettingsPanel({
         <Field label="Business-Puffer-Ziel (CHF)" hint="Nach den Monatszielen wird der Puffer bis zu diesem Betrag aufgefüllt. Darüber entsteht zusätzlicher Überschuss.">
           <Input value={threshold} inputMode="decimal" onChange={(event) => setThreshold(event.target.value)} />
         </Field>
+        <Field label="Steuerrücklage überweisen an">
+          <Select value={taxTransferAccountKey} onChange={(event) => setTaxTransferAccountKey(event.target.value as WealthFirstTransferAccountKey)}>
+            {WEALTH_FIRST_TRANSFER_ACCOUNTS.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}
+          </Select>
+        </Field>
       </div>
 
       <div className="space-y-3">
@@ -322,19 +351,24 @@ function SettingsPanel({
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setEditablePots((current) => [...current, { id: crypto.randomUUID(), name: "", amount: "0.00", active: true, destinationType: "private_pot" }])}
+            onClick={() => setEditablePots((current) => [...current, { id: crypto.randomUUID(), name: "", amount: "0.00", active: true, destinationType: "private_pot", transferAccountKey: "yuh" }])}
           >
             Topf hinzufügen
           </Button>
         </div>
         <div className="grid gap-3">
           {editablePots.map((pot, index) => (
-            <div key={`${pot.id}-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 md:grid-cols-[1fr_14rem_auto] md:items-end dark:bg-slate-900">
+            <div key={`${pot.id}-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 md:grid-cols-[1fr_14rem_14rem_auto] md:items-end dark:bg-slate-900">
               <Field label={pot.destinationType === "service_account" ? "Geschäftskonto · höchste Priorität" : `Privater Spartopf · Priorität ${index + 1}`}>
                 <Input value={pot.name} onChange={(event) => setEditablePots((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} />
               </Field>
               <Field label="Monatsziel (CHF)">
                 <Input value={pot.amount} inputMode="decimal" onChange={(event) => setEditablePots((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amount: event.target.value } : item))} />
+              </Field>
+              <Field label="Überweisen an">
+                <Select value={pot.transferAccountKey} onChange={(event) => setEditablePots((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, transferAccountKey: event.target.value as WealthFirstTransferAccountKey } : item))}>
+                  {WEALTH_FIRST_TRANSFER_ACCOUNTS.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}
+                </Select>
               </Field>
               <label className="flex min-h-10 items-center gap-2 text-sm text-slate-700">
                 <input type="checkbox" checked={pot.active} disabled={pot.destinationType === "service_account"} onChange={(event) => setEditablePots((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, active: event.target.checked } : item))} />
@@ -345,7 +379,7 @@ function SettingsPanel({
         </div>
         {!pots.some((pot) => pot.destination_type === "service_account") && pots.length > 0 ? <Field label="Vorhandenes Ziel als Servicekonto verwenden" hint="Bei einem bestehenden Servicekonto dessen bisherigen Eintrag wählen. So bleiben frühere Monatszuweisungen zugeordnet."><Select value="" onChange={(event) => {
           if (!event.target.value) return;
-          setEditablePots((current) => current.filter((pot) => pot.id || pot.destinationType !== "service_account").map<EditablePot>((pot) => ({ ...pot, destinationType: pot.id === event.target.value ? "service_account" : "private_pot", active: pot.id === event.target.value ? true : pot.active })).sort((a, b) => Number(b.destinationType === "service_account") - Number(a.destinationType === "service_account")));
+          setEditablePots((current) => current.filter((pot) => pot.id || pot.destinationType !== "service_account").map<EditablePot>((pot) => ({ ...pot, destinationType: pot.id === event.target.value ? "service_account" : "private_pot", transferAccountKey: pot.id === event.target.value ? "glkb_service" : pot.transferAccountKey, active: pot.id === event.target.value ? true : pot.active })).sort((a, b) => Number(b.destinationType === "service_account") - Number(a.destinationType === "service_account")));
         }}><option value="">Zuordnung wählen …</option>{pots.map((pot) => <option key={pot.id} value={pot.id}>{pot.name}</option>)}</Select></Field> : null}
         <p className="text-sm font-medium">Aktives Monatsziel gesamt: {formatChfCents(editablePots.reduce((sum, pot) => sum + (pot.active ? parseChfToCents(pot.amount) ?? 0 : 0), 0))}</p>
       </div>
@@ -549,6 +583,22 @@ function DistributionPanel({
   const invalidAllocation = Object.values(allocations).some((value) => parseChfToCents(value) === null);
   const canConfirm = Boolean(calculation && !calculation.reconciliationRequired && calculation.validationErrors.length === 0 && calculation.reconciles && !invalidAllocation && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && isDistributionDate(distributionDate) && requestId);
   const quickDate = distributionDate === `${month}-10` ? "10" : distributionDate === `${month}-25` ? "25" : "custom";
+  const transferGroups = useMemo(() => {
+    if (!calculation) return [];
+    const items = [];
+    const taxKey = settings.tax_transfer_account_key;
+    if (calculation.taxReserveCents > 0 && taxKey && isWealthFirstTransferAccountKey(taxKey)) {
+      items.push({ accountKey: taxKey, label: "Steuerrücklage", amountCents: calculation.taxReserveCents });
+    }
+    for (const pot of calculation.pots) {
+      const accountKey = pots.find((item) => item.id === pot.potId)?.transfer_account_key;
+      if (accountKey && isWealthFirstTransferAccountKey(accountKey)) {
+        items.push({ accountKey, label: pot.name, amountCents: pot.allocationCents });
+      }
+    }
+    return groupWealthFirstTransfers(items);
+  }, [calculation, pots, settings.tax_transfer_account_key]);
+  const transferTotal = wealthFirstTransferTotal(transferGroups);
 
   const confirm = () => {
     if (!calculation || balanceCents === null || !canConfirm) return;
@@ -680,7 +730,10 @@ function DistributionPanel({
           </Card>
 
           <Card className="space-y-4">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Schritt 6 · Bestätigen</p><h2 className="mt-2 text-lg font-semibold text-slate-950">Verteilung vom {distributionDate || "…"} verbindlich speichern</h2><p className="mt-2 text-sm text-slate-600">Mit der Bestätigung bestätigst du die manuelle Ausführung der aufgeführten Steuer-, Servicekonto- und Spartopfüberweisungen. Der Überschuss gilt nur mit der zusätzlichen Bestätigung oben als überwiesen. Puffer, offener Überschuss und unveränderliche Snapshots werden atomar gespeichert. Die App führt keine Banküberweisungen aus.</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-700">Schritt 6 · Bestätigen</p><h2 className="mt-2 text-lg font-semibold text-slate-950">Überweisungen prüfen und Verteilung abschliessen</h2><p className="mt-2 text-sm text-slate-600">Diese Übersicht fasst nur die jetzt tatsächlich notwendigen Überweisungen zusammen. Der zusätzliche Investitionsüberschuss ist bewusst nicht enthalten.</p></div>
+            {transferGroups.length ? <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white dark:bg-slate-900"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800"><tr><th className="px-4 py-3">Zielkonto</th><th className="px-4 py-3 text-right">Zu überweisender Betrag</th></tr></thead><tbody>{transferGroups.map((group) => <tr key={group.accountKey} className="border-t border-slate-200"><td className="px-4 py-3"><p className="font-medium text-slate-950">{group.label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{group.items.map((item) => `${item.label} ${formatChfCents(item.amountCents)}`).join(" · ")}</p></td><td className="px-4 py-3 text-right"><strong>{formatChfCents(group.amountCents)}</strong><div><CopyAmountButton cents={group.amountCents} /></div></td></tr>)}<tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold dark:bg-slate-800"><td className="px-4 py-3">Gesamtsumme</td><td className="px-4 py-3 text-right">{formatChfCents(transferTotal)}</td></tr></tbody></table></div> : <p className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-600">Für diese Verteilung sind keine Überweisungen erforderlich.</p>}
+            {calculation.totalSurplusCents > 0 ? <p className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">Zusätzlicher Investitionsüberschuss: {formatChfCents(calculation.totalSurplusCents)} · noch keinem Zielkonto zugeordnet und nicht in der Gesamtsumme enthalten.</p> : null}
+            <div><h2 className="text-lg font-semibold text-slate-950">Verteilung vom {distributionDate || "…"} verbindlich speichern</h2><p className="mt-2 text-sm text-slate-600">Mit der Bestätigung bestätigst du die manuelle Ausführung der aufgeführten Steuer-, Servicekonto- und Spartopfüberweisungen. Der Überschuss gilt nur mit der zusätzlichen Bestätigung oben als überwiesen. Puffer, offener Überschuss und unveränderliche Snapshots werden atomar gespeichert. Die App führt keine Banküberweisungen aus.</p></div>
             {!isDistributionDate(distributionDate) ? <p className="text-sm text-rose-700">Bitte ein gültiges Verteilungsdatum wählen.</p> : null}
             <div className="flex justify-end"><Button type="button" disabled={!canConfirm || pending} onClick={confirm}>{pending ? "Wird bestätigt …" : "Verteilung abschliessen"}</Button></div>
           </Card>
